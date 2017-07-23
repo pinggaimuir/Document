@@ -1,0 +1,24 @@
+建表需求文档
+	场景：模拟一个天猫网店的后台数据，忽略掉用户信息
+    建立数据库和需要的Table：
+   	1.product 产品表
+   		id
+   		name
+   		price
+   		pnum	 库存
+   		category 分类
+	2.order 订单表
+		id 订单id
+		money 订单价格
+		order_time 订单时间
+		receiveInfo 收货信息
+		paystate 支付状态
+	
+    3.orderitem 订单详情
+    	order_id	订单id
+    	product_id  商品id
+    	buy_num      购买数量
+
+    总的商品数量大概在200W左右，商品的订单大概在5W左右，订单详情至少10W条数据
+
+

@@ -1,0 +1,239 @@
+知识点：唯一性索引unique index和一般索引normal index最大的差异就是在索引列上增加了一层唯一约束。添加唯一性索引的数据列可以为空，但是只要存在数据值，就必须是唯一的。
+测试方式：
+
+
+1、实验环境准备
+ 
+为了体现出一致性和可能的差异性，选择相同的数据值列加入不同类型的索引结构。
+ 
+ 
+SQL> select * from v$version where rownum<2;
+BANNER
+--------------------------------------------------------------------------------
+Oracle Database 11g Enterprise Edition Release 11.2.0.1.0 - Production
+ 
+SQL> create table t as select * from dba_objects;
+Table created
+ 
+//保证data_object_id和object_id取值相同；
+SQL> update t set data_object_id=object_id;
+72581 rows updated
+ 
+SQL> commit;
+Commit complete
+ 
+//普通索引
+SQL> create index idx_t_normalid on t(object_id);
+Index created
+ 
+//唯一性索引
+SQL> create unique index idx_t_uniid on t(data_object_id);
+Index created
+ 
+SQL> exec dbms_stats.gather_table_stats(user,'T',cascade => true);
+PL/SQL procedure successfully completed
+ 
+ 
+ 
+2、体积容量比较
+ 
+在环境准备中，我们将索引列取值设置为完全相同，尽量避免由于外在原因引起的差异。下面我们检查数据字典中的容量比较信息。
+ 
+首先是查看索引段index segment信息。
+ 
+ 
+SQL> select segment_name, segment_type, bytes, blocks, extents from dba_segments where segment_name in ('IDX_T_NORMALID','IDX_T_UNIID');
+ 
+SEGMENT_NAME         SEGMENT_TYPE         BYTES     BLOCKS  EXTENTS
+-------------------- ------------------ ---------- ---------- ----------
+IDX_T_NORMALID       INDEX                  983040        120         15
+IDX_T_UNIID            INDEX                  917504        112         14
+ 
+ 
+一般索引normal index较唯一性索引空间消耗略大。索引idx_t_normalid占据15个分区，120个block。略大于idx_t_uniid的14个分区块。
+ 
+这个地方需要注意一下，在数据字典中一个segment的分区占据，是Oracle系统分配给的空间，并不意味着全部使用殆尽。可能两个索引结构差异很小，但是额外多分配出一个extent。
+ 
+索引叶子结构上，检查数据字典内容。
+ 
+ 
+SQL> select index_name, index_type, UNIQUENESS, BLEVEL, LEAF_BLOCKS, DISTINCT_KEYS from dba_indexes where index_name in ('IDX_T_NORMALID','IDX_T_UNIID');
+ 
+INDEX_NAME           INDEX_TYPE      UNIQUENESS     BLEVEL LEAF_BLOCKS DISTINCT_KEYS
+-------------------- --------------- ---------- ---------- ----------- -------------
+IDX_T_UNIID          NORMAL          UNIQUE              1         106         51330
+IDX_T_NORMALID       NORMAL          NONUNIQUE           1         113         51330
+ 
+ 
+两者的差异不大，normal index空间消耗要略大于unique index。
+ 
+结论：从数据字典反映出的情况可以知道，同一般索引相比，唯一性索引的空间消耗略小一些。由于我们采用的实验数据都是相同的，这一点点的差距可能就意味着两种索引类型在存储结构上存在略微的差异。
+ 
+ 
+3、违反约束实验
+ 
+作为唯一性索引，在添加创建和进行dml操作的时候，都会严格发挥出约束的作用。
+ 
+SQL> insert into t select * from t where rownum<2;
+ 
+insert into t select * from t where rownum<2
+ 
+ORA-00001: 违反唯一约束条件 (SYS.IDX_T_UNIID)
+ 
+ 
+ 
+4、等号检索实验
+ 
+当我们进行等号查询的时候，Oracle对两种索引生成的执行计划有何种差异？注意：下面的select检索之前，都使用flush语句对shared_pool和buffer_cache进行清理。
+ 
+ 
+--精确查询
+SQL> select * from t where object_id=1000;
+执行计划
+----------------------------------------------------------
+Plan hash value: 776407697
+----------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name           | Rows  | Bytes | Cost (%CPU)| Time     |
+----------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |                |     1 |   101 |     2   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T              |     1 |   101 |     2   (0)| 00:00:01 |
+|*  2 |   INDEX RANGE SCAN          | IDX_T_NORMALID |     1 |       |     1   (0)| 00:00:01 |
+----------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("OBJECT_ID"=1000)
+统计信息
+----------------------------------------------------------
+        528  recursive calls
+          0  db block gets
+         87  consistent gets
+         11  physical reads
+          0  redo size
+       1200  bytes sent via SQL*Net to client
+        376  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          4  sorts (memory)
+          0  sorts (disk)
+          1  rows processed
+ 
+SQL> select * from t where data_object_id=1000;
+ 
+执行计划
+----------------------------------------------------------
+Plan hash value: 335537167
+ 
+-------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name        | Rows  | Bytes | Cost (%CPU)| Time     |
+-------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |             |     1 |   101 |     2   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T           |     1 |   101 |     2   (0)| 00:00:01 |
+|*  2 |   INDEX UNIQUE SCAN         | IDX_T_UNIID |     1 |       |     1   (0)| 00:00:01 |
+-------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("DATA_OBJECT_ID"=1000)
+统计信息
+----------------------------------------------------------
+        528  recursive calls
+          0  db block gets
+         86  consistent gets
+         10  physical reads
+          0  redo size
+       1200  bytes sent via SQL*Net to client
+        376  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          4  sorts (memory)
+          0  sorts (disk)
+          1  rows processed
+ 
+ 
+这里，我们看到了Unique Index的一个特性，就是等号操作时执行计划的差异。对Unique Index而言，进行相等查询的结果只有一行值或者没有，所以没必要进行传统的Index Range Scan操作。此处，执行计划中使用的是Index Unique Scan操作，直接精确定位到指定的记录项目，返回rowid记录。
+ 
+而一般索引在进行等号检索的时候，通常使用的就是Index Range Scan操作。沿着索引树叶子节点进行水平扫描操作，直到获取索引符合条件索引列值的rowid列表。
+ 
+从成本上看，两者虽然执行计划操作方式有一定差别，但是成本实际差异不大。CPU成本和执行时间上相同。各种块读操作（逻辑读和物理读）存在一些差异，笔者认为源于两个索引结构的微量区别，这样读取的块数一定有些差异。
+ 
+ 
+5、范围搜索实验
+ 
+当我们进行索引列的范围搜索时，执行计划和成本有何种差异呢？
+ 
+ 
+--范围匹配
+SQL> select * from t where object_id>=1000 and object_id<=1500;
+已选择490行。
+ 
+执行计划
+----------------------------------------------------------
+Plan hash value: 776407697
+----------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name           | Rows  | Bytes | Cost (%CPU)| Time     |
+----------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |                |   485 | 48985 |    14   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T              |   485 | 48985 |    14   (0)| 00:00:01 |
+|*  2 |   INDEX RANGE SCAN          | IDX_T_NORMALID |   485 |       |     3   (0)| 00:00:01 |
+----------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("OBJECT_ID">=1000 AND "OBJECT_ID"<=1500)
+ 
+统计信息
+----------------------------------------------------------
+        528  recursive calls
+          0  db block gets
+        158  consistent gets
+         17  physical reads
+          0  redo size
+      23775  bytes sent via SQL*Net to client
+        728  bytes received via SQL*Net from client
+         34  SQL*Net roundtrips to/from client
+          4  sorts (memory)
+          0  sorts (disk)
+        490  rows processed
+ 
+ 
+SQL> select * from t where data_object_id>=1000 and data_object_id<=1500;
+已选择490行。
+ 
+执行计划
+----------------------------------------------------------
+Plan hash value: 2700411221
+ 
+-------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name        | Rows  | Bytes | Cost (%CPU)| Time     |
+-------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |             |   485 | 48985 |    14   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T           |   485 | 48985 |    14   (0)| 00:00:01 |
+|*  2 |   INDEX RANGE SCAN          | IDX_T_UNIID |   485 |       |     3   (0)| 00:00:01 |
+-------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("DATA_OBJECT_ID">=1000 AND "DATA_OBJECT_ID"<=1500)
+ 
+统计信息
+----------------------------------------------------------
+        528  recursive calls
+          0  db block gets
+        157  consistent gets
+         16  physical reads
+          0  redo size
+      23775  bytes sent via SQL*Net to client
+        728  bytes received via SQL*Net from client
+         34  SQL*Net roundtrips to/from client
+          4  sorts (memory)
+          0  sorts (disk)
+        490  rows processed
+ 
+ 
+ 
+从实验结果看，两者在进行范围搜索时，执行计划没有差异。两者都是进行Index Range Scan操作。各类型成本基本相同。
+ 
+ 
+6、结论
+ 
+本篇主要从应用角度，分析Unique Index与一般normal Index的差异。从结果看，Unique Index就是额外添加的唯一性约束。该约束严格的保证索引列的取值唯一性，这在一些数据列上的业务约束实现是很重要的功能。比如一个数据列，不能作为主键，而且允许为空，但是业务上要求唯一特性。这时候使用唯一性索引就是最好的选择。
+ 
+从执行计划where条件中的表现看，Unique Index和一般normal Index没有显著性的差异。
+ 
+ 
+两者数据基础值一样的情况下，生成索引的体积存在略微的差异，说明在存储结构上两者可能有不同。下面我们来分析一下两类型索引的结构信息。

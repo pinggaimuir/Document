@@ -1,0 +1,93 @@
+测试可能需要用到的oracle语句和测试方法
+**************************************
+创建索引
+CREATE UNIUQE | BITMAP INDEX <schema>.<index_name>
+
+      ON <schema>.<table_name>
+
+           (<column_name> | <expression> ASC | DESC,
+            <column_name> | <expression> ASC | DESC,...)
+     TABLESPACE <tablespace_name>
+     STORAGE <storage_settings>
+     LOGGING | NOLOGGING
+    COMPUTE STATISTICS
+     NOCOMPRESS | COMPRESS<nn>
+     NOSORT | REVERSE
+     PARTITION | GLOBAL PARTITION<partition_setting>
+相关说明
+
+1） UNIQUE | BITMAP：指定UNIQUE为唯一值索引，BITMAP为位图索引，省略为B-Tree索引。
+2）<column_name> | <expression> ASC | DESC：可以对多列进行联合索引，当为expression时即“基于函数的索引”
+3）TABLESPACE：指定存放索引的表空间(索引和原表不在一个表空间时效率更高)
+4）STORAGE：可进一步设置表空间的存储参数
+5）LOGGING | NOLOGGING：是否对索引产生重做日志(对大表尽量使用NOLOGGING来减少占用空间并提高效率)
+6）COMPUTE STATISTICS：创建新索引时收集统计信息
+7）NOCOMPRESS | COMPRESS<nn>：是否使用“键压缩”(使用键压缩可以删除一个键列中出现的重复值)
+8）NOSORT | REVERSE：NOSORT表示与表中相同的顺序创建索引，REVERSE表示相反顺序存储索引值
+9）PARTITION | NOPARTITION：可以在分区表和未分区表上对创建的索引进行分区
+*****************************************
+用户表空间查看、修改大小、设置自增长等 
+
+首先登入某个用户，查看某个用户在哪个表空间下：
+     select username,default_tablespace from user_users;
+ 
+查看该用户下所有的表：
+     select * from user_tables;
+ 
+查看所有表 名称、路径、是否自动增长：
+     select tablespace_name,file_name,autoextensible from dba_data_files;
+ 
+修改表空间自动增长属性：
+     alter database datafile '表空间路径' autoextend on;
+         可以再次执行前一个查询，是否成功；表空间自增长的优劣，各位自查。
+ 
+修改大小：
+     Alter database datafile ‘表空间路径’resize 2000m;
+ 
+查看当前的连接数：
+SQL> select count(*) from v$session;
+ 
+查看最大的进程数：
+SQL> show parameter processes;
+ 
+ 
+查看最大连接数：
+SQL> show parameter sessions;
+
+oracle对于数据库中的表信息，存储在系统表中。查询已创建好的表索引，可通过相应的sql语句到相应的表中进行快捷的查询：
+1. 根据表名，查询一张表的索引
+select * from user_indexes where table_name=upper('表名');
+2. 根据索引号，查询表索引字段
+select * from user_ind_columns where index_name=('索引名');
+3.根据索引名，查询创建索引的语句
+select dbms_metadata.get_ddl('INDEX','索引名', ['用户名']) from dual ; --['用户名']可省，默认为登录用户
+**********************************************************
+测试知识点
+一、测试知识点：多表查询下建立索引与未建索引查询速度区别
+后期测试方式：
+利用索引的查询处理如下。
+（1）从表t1中选择第一行，查看此行所包含的数据。
+（2）使用表t2上的索引，直接定位t2中与t1的值匹配的行。类似，利用表t3上的索引，直接定位t3中与来自t1的值匹配的行。
+（3）扫描表t1的下一行并重复前面的过程，直到遍历t1中所有的行。
+在此情形下，仍然对表t1执行了一个完全扫描，但能够在表t2和t3上进行索引查找直接取出这些表中的行，比未用索引时要快一百万倍。
+利用索引，MySQL加速了WHERE子句满足条件行的搜索，而在多表连接查询时，在执行连接时加快了与其他表中的行匹配的速度。
+
+结论：
+
+二、测试.知识点：
+唯一性索引unique index和一般索引normal index最大的差异就是在索引列上增加了一层唯一约束。添加唯一性索引的数据列可以为空，但是只要存在数据值，就必须是唯一的。
+
+三、测试知识点：验证索引两大特征 单表查询下单一索引与复合索引的优缺点及区别
+   单一索引:Create Index <Index-Name> On <Table_Name>(Column_Name);
+ 　复合索引: Create Index i_deptno_job on emp(deptno,job); —>在emp表的deptno、job列建立索引。
+　　select * from emp where deptno=66 and job='sals' ->走索引。
+　　select * from emp where deptno=66 OR job='sals' ->将进行全表扫描。不走索引
+　　select * from emp where deptno=66 ->走索引。
+　　select * from emp where job='sals' ->进行全表扫描、不走索引。
+如果在where 子句中有OR 操作符或单独引用Job 列(索引列的后面列) 则将不会走索引，将会进行全表扫描。
+       
+后期测试方式：
+（1）创建单一索引进行单表单一索引查询 记录查询时间；
+（2）创建复合索引进行单表复合索引查询 记录查询时间；
+（3）验证上述查询语句，以时间做比较
+结论：
