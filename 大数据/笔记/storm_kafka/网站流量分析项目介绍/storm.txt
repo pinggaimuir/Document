@@ -1,0 +1,1148 @@
+一、Storm概述
+	　Storm是一个开源的分布式实时计算系统，可以简单、可靠的处理大量的数据流。Storm有很多使用场景：如实时分析，在线机器学习，持续计算，分布式RPC，ETL等等。Storm支持水平扩展，具有高容错性，保证每个消息都会得到处理，而且处理速度很快(在一个小集群中，每个结点每秒可以处理数以百万计的消息)。Storm的部署和运维都很便捷，而且更为重要的是可以使用任意编程语言来开发应用。
+
+二、Storm概述
+	1.结构
+		storm结构称为topology(拓扑)，由stream(数据流),spout(喷嘴-数据流的生成者),bolt(阀门-数据流运算者)组成(参考图:Storm组成结构)。
+		不同于Hadoop中的job,Storm中的topology会一直运行下去，除非进程被杀死或取消部署。
+			
+	2.Stream
+		Storm的核心数据结构是tuple(元组)，本质上是包含了一个或多个键值对的列表。Stream是由无限制的tuple组成的序列。
+
+	3.spout
+		spout连接到数据源，将数据转化为一个个的tuple，并将tuple作为数据流进行发射。开发一个spout的主要工作就是利用API编写代码从数据源消费数据流。
+		spout的数据源可以有很多种来源：
+			web或者移动程序的点击流
+			社交网络的信息
+			传感器收集到的数据
+			应用程序产生的日志信息
+		spout通常只负责转换数据、发射数据，通常不会用于处理业务逻辑，从而可以很方便的实现spout的复用。
+
+	4.bolt
+		bolt主要负责数据的运算，将接收到的数据实施运算后，选择性的输出一个或多个数据流。
+		一个bolt可以接收多个由spout或其他bolt发射的数据流，从而可以组建出复杂的数据转换和处理的网络拓扑结构。
+		bolt常见的典型功能：
+			过滤
+			连接和聚合
+			计算
+			数据库的读写
+
+三、入门案例
+	1.案例结构
+		案例：Word Count案例
+
+		语句Spout --> 语句分隔Bolt --> 单词计数Bolt --> 上报Bolt
+
+	2.语句生成Spout - SentenceSpout
+		作为入门案例，我们直接从一个数组中不断读取语句，作为数据来源。
+		SentenceSpout不断读取语句将其作为数据来源，组装成单值tuple（键名sentence，键值为祖父穿格式的语句）向后发射。
+		{"sentence":"i am so shuai!"}
+
+		代码：
+			/**
+			 *	BaseRichSpout类是ISpout接口和IComponent接口的一个简便的实现。采用了适配器模式，对用不到的方法提供了默认实现。
+			 */
+			public class SentenceSpout extends BaseRichSpout {
+				private SpoutOutputCollector collector;
+				private String [] sentences = {
+					"i am so shuai",
+					"do you like me",
+					"are you sure you do not like me",
+					"ok i am sure"
+				};
+				private int index = 0;
+				
+				/**
+				 * ISpout接口中定义的方法
+				 * 所有Spout组件在初始化时都会调用这个方法。
+				 * map 包含了Storm配置信息
+				 * context 提供了topology中的组件信息
+				 * collector 提供了发射tuple的方法
+				 */
+				@Override
+				public void open(Map conf, TopologyContext context, SpoutOutputCollector collector) {
+					this.collector = collector;
+				}
+
+				/**
+				 * 覆盖自BaseRichSpout中的方法
+				 * 核心方法
+				 * Storm通过调用此方法向发射tuple
+				 */
+				@Override
+				public void nextTuple() {
+					this.collector.emit(new Values(sentences[index]));
+					index = (index + 1 >= sentences.length) ? 0 : index+1;
+					Utils.sleep(1000);
+				}
+
+				/**
+				 * IComponent接口中定义的方法
+				 * 所有的Storm组件(spout、bolt)都要实现此接口。
+				 * 此方法告诉Storm当前组件会发射哪些数据流，每个数据流中的tuple中包含哪些字段。
+				 */
+				@Override
+				public void declareOutputFields(OutputFieldsDeclarer declarer) {
+					declarer.declare(new Fields("sentence"));
+				}
+			}
+
+		
+	3.语句分隔Bolt -- SplitSenetenceBolt
+		语句分隔Bolt订阅SentenceSpout发射的tuple，每接收到一个tuple就获取"sentence"对应的值，然后将得到的语句按照空格切分为一个个单词。然后将每个单词向后发射一个tuple。
+		{"word":"I"}
+		{"word":"am"}
+		{"word":"so"}
+		{"word":"shuai"}
+
+		代码：
+			/**
+			 * BaseRichBolt 是IComponent 和 IBolt接口的一个简单实现。采用了适配器模式，对用不到的方法提供了默认实现。
+			 */
+			public class SplitSentenceBolt extends BaseRichBolt {
+				private OutputCollector collector;
+				
+				/**
+				 * 定义在IBolt中的方法
+				 * 在bolt初始化时调用，用来初始化bolt
+				 * stormConf 包含了Storm配置信息
+				 * context 提供了topology中的组件信息
+				 * collector 提供了发射tuple的方法
+				 */
+				@Override
+				public void prepare(Map stormConf, TopologyContext context, OutputCollector collector) {
+					this.collector = collector;
+				}
+				
+				/**
+				 * 覆盖自BaseRichBolt中的方法
+				 * 核心方法
+				 * Storm通过调用此方法向发射tuple
+				 */
+				@Override
+				public void execute(Tuple input) {
+					String sentence = input.getStringByField("sentence");
+					String [] words = sentence.split(" ");
+					for(String word : words){
+						this.collector.emit(new Values(word));
+					}
+				}
+				
+				/**
+				 * IComponent接口中定义的方法
+				 * 所有的Storm组件(spout、bolt)都要实现此接口。
+				 * 此方法告诉Storm当前组件会发射哪些数据流，每个数据流中的tuple中包含哪些字段。
+				 */
+				@Override
+				public void declareOutputFields(OutputFieldsDeclarer declarer) {
+					declarer.declare(new Fields("word"));
+				}
+
+			}
+
+
+	4.单词计数Bolt -- WordCountBolt
+		单词计数Bolt订阅SplitSentenceBolt的输出，保存每个特定单词出现次数，当接收到一个新的tuple，会将对应单词计数加一，并向后发送该单词的当前计数。
+		{"word":"I","count":3}
+
+		代码：
+			public class WordCountBolt extends BaseRichBolt {
+				private OutputCollector collector = null;
+				private HashMap<String,Long> counts = null;
+				
+				/**
+				 * 注意:
+				 * 	所有的序列化操作最好都在prepare方法中进行
+				 * 原因:
+				 * 	Storm在工作时会将所有的bolt和spout组件先进行序列化，然后发送到集群中，如果在序列化之前创建过任何无法序列化的对象都会造成序列化时抛出NotSerializableException。
+				 * 此处的HashMap本身是可以序列化的所以不会有这个问题，但是有必要养成这样的习惯 。
+				 */
+				@Override
+				public void prepare(Map stormConf, TopologyContext context, OutputCollector collector) {
+					this.collector = collector;
+					this.counts = new HashMap<String,Long>();
+				}
+
+				@Override
+				public void execute(Tuple input) {
+					String word = input.getStringByField("word");
+					this.counts.put(word, counts.containsKey(word) ? counts.get(word) +1 : 1);
+					this.collector.emit(new Values(word,counts.get(word)));
+				}
+
+				@Override
+				public void declareOutputFields(OutputFieldsDeclarer declarer) {
+					declarer.declare(new Fields("word","count"));
+				}
+
+			}
+		
+	5.上报Bolt -- ReportBolt
+		上报Bolt订阅WordCountBolt类的输出，内部维护一份所有单词的对应计数的表，当接收到一个tuple时，上报Bolt会更新表中的计数数据，并将值打印到终端。
+
+		代码:
+			/**
+			 * 此Bolt处于数据流的末端，所以只接受tuple而不发射任何数据流。
+			 */
+			public class ReprotBolt extends BaseRichBolt {
+				
+				private HashMap<String,Long>counts = null;
+				
+				@Override
+				public void prepare(Map stormConf, TopologyContext context, OutputCollector collector) {
+					this.counts = new HashMap<String,Long>();
+				}
+
+				@Override
+				public void execute(Tuple input) {
+					String word = input.getStringByField("word");
+					Long count = input.getLongByField("count");
+					this.counts.put(word, count);
+				}
+
+				@Override
+				public void declareOutputFields(OutputFieldsDeclarer declarer) {
+					//处于流末端的tuple，没有任何输出数据流，所以此方法为空
+				}
+				
+				/**
+				 * Storm会在终止一个Bolt之前调用此方法。
+				 * 此方法通常用来在Bolt退出之前释放资源。
+				 * 此处我们用来输出统计结果到控制台。
+				 * 注意：真正集群环境下，cleanup()方法是不可靠的，不能保证一定执行，后续会讨论。
+				 */
+				@Override
+				public void cleanup() {
+					System.out.println("------统计结果------");
+					List<String> keys = new ArrayList<String>();
+					keys.addAll(this.counts.keySet());
+					Collections.sort(keys);
+					for(String key : keys){
+						System.out.println(key + " : " +this.counts.get(key));
+					}
+					System.out.println("------------------");
+				}
+			}
+
+	6.单词计数Topology
+		通过main方法组装处理流程。
+		此处我们使用单机模式来测试。
+		
+		代码:
+			public class WordCountTopology {
+				private static final String SENTENCE_SPOUT_ID = "sentence-spout";
+				private static final String SPLIT_BOLT_ID = "split-bolt";
+				private static final String COUNT_BOLT_ID = "count-bolt";
+				private static final String REPORT_BOLT_ID = "report-bolt";
+				private static final String TOPOLOGY_NAME = "word-count-topology";
+
+				public static void main(String[] args) throws Exception {
+					//--实例化Spout和Bolt
+					SentenceSpout spout = new SentenceSpout();
+					SplitSentenceBolt splitBolt = new SplitSentenceBolt();
+					WordCountBolt countBolt = new WordCountBolt();
+					ReprotBolt reportBolt = new ReprotBolt();
+					
+					//--创建TopologyBuilder类实例
+					TopologyBuilder builder = new TopologyBuilder();
+					
+					//--注册SentenceSpout
+					builder.setSpout(SENTENCE_SPOUT_ID, spout);
+					//--注册SplitSentenceBolt，订阅SentenceSpout发送的tuple
+					//此处使用了shuffleGrouping方法，此方法指定所有的tuple随机均匀的分发给SplitSentenceBolt的实例。
+					builder.setBolt(SPLIT_BOLT_ID, splitBolt).shuffleGrouping(SENTENCE_SPOUT_ID);
+					//--注册WordCountBolt,，订阅SplitSentenceBolt发送的tuple
+					//此处使用了filedsGrouping方法，此方法可以将指定名称的tuple路由到同一个WordCountBolt实例中
+					builder.setBolt(COUNT_BOLT_ID, countBolt).fieldsGrouping(SPLIT_BOLT_ID, new Fields("word"));
+					//--注册ReprotBolt，订阅WordCountBolt发送的tuple
+					//此处使用了globalGrouping方法，表示所有的tuple都路由到唯一的ReprotBolt实例中
+					builder.setBolt(REPORT_BOLT_ID, reportBolt).globalGrouping(COUNT_BOLT_ID);
+					
+					//--创建配置对象
+					Config conf = new Config();
+					
+					//--创建代表集群的对象，LocalCluster表示在本地开发环境来模拟一个完整的Storm集群
+					//本地模式是开发和测试的简单方式，省去了在分布式集群中反复部署的开销
+					//另外可以执行断点调试非常的便捷
+					LocalCluster cluster = new LocalCluster();
+					
+					//--提交Topology给集群运行
+					cluster.submitTopology(TOPOLOGY_NAME, conf, builder.createTopology());
+					
+					//--运行10秒钟后杀死Topology关闭集群
+					Thread.sleep(1000 * 10);
+					cluster.killTopology(TOPOLOGY_NAME);
+					cluster.shutdown();
+				}
+			}
+
+四、Storm的并发机制
+	1.Storm集群中的topology由这四个主要部分组成：
+		(1)Nodes--服务器:配置在Storm集群中的一个服务器，会执行Topology的一部分运算,一个Storm集群中包含一个或者多个Node
+		(2)Workers--JVM虚拟机、进程：指一个Node上相互独立运作的JVM进程，每个Node可以配置运行一个或多个worker。一个Topology会分配到一个或者多个worker上运行。
+		(3)Executeor--线程：指一个worker的jvm中运行的java线程。多个task可以指派给同一个executer来执行。除非是明确指定，Storm默认会给每个executor分配一个task。
+		(4)Task--bolt/spout实例:task是sqout和bolt的实例，他们的nextTuple()和execute()方法会被executors线程调用执行。
+
+
+		大多数情况下，除非明确指定，Storm的默认并发设置值是1。即，一台服务器(node),为topology分配一个worker，每个executer执行一个task。参看图(Storm默认并发机制)	
+		此时唯一的并发机制出现在线程级。
+		在单机模式下增加并发的方式可以体现在分配更多的worker和executer给topology。
+		**单机模式下，增加Node的数量不会有任何提升速度的效果。
+
+	2.增加worker
+		可以通过API和修改配置两种方式修改分配给topology的woker数量。
+
+		Config config = new Config();
+		config.setNumWorkers(2);
+
+	3.增加Executor
+		builder.setSpout(spout_id,spout,executor_num)
+		builder.setBolt(bolt_id,bolt,executor_num)
+		
+
+	4.增加Task
+		builder.setSpout(...).setNumTasks(task_num);
+		builder.setBolt(...).setNumTasks(task_num);
+
+		
+		
+	5.数据流分组
+		数据流分组方式定义了数据如何进行分发。
+		Storm内置了七种数据流分组方式:
+			Shuffle Grouping(随机分组)
+				随机分发数据流中的tuple给bolt中的各个task，每个task接收到的tuple数量相同。
+			Fields Grouping(按字段分组)
+				根据指定字段的值进行分组。指定字段具有相同值的tuple会路由到同一个bolt中的task中。
+			All Grouping(全复制分组)
+				所有的tuple赋值后分发给所有的bolt task。
+			Globle Grouping(全局分组)
+				这种分组方式将所有的tuple路由到唯一一个task上，Storm按照最小task id来选取接受数据的task。
+				这种分组方式下配置bolt的task的并发度没有意义。
+				这种方式会导致所有tuple都发送到一个JVM实例上，可能会引起Strom集群中某个JVM或者服务器出现性能瓶颈或崩溃。
+			None Grouping(不分组)
+				在功能上和随机分组相同，为将来预留。
+			Direct Grouping(指向型分组)
+				数据源会通过emitDirect()方法来判断一个tuple应该由哪个Strom组件来接受。只能在声明了是指向型数据流上使用。
+			Local or shuffle Grouping(本地或随机分组)
+				和随机分组类似，但是，会将tuple分发给同一个worker内的bolt task，其他情况下采用随机分组方式。
+				这种方式可以减少网络传输，从而提高topology的性能。
+		**另外可以自定义数据流分组方式 
+			写类实现CustomStreamGrouping接口
+
+			代码：
+				/**
+				 * 自定义数据流分组方式
+				 * @author park
+				 *
+				 */
+				public class MyStreamGrouping implements CustomStreamGrouping {
+
+					/**
+					 * 运行时调用，用来初始化分组信息
+					 * context:topology上下文对象
+					 * stream:待分组数据流属性
+					 * targetTasks:所有待选task的标识符列表
+					 * 
+					 */
+					@Override
+					public void prepare(WorkerTopologyContext context, GlobalStreamId stream, List<Integer> targetTasks) {
+						
+					}
+
+					/**
+					 * 核心方法，进行task选择
+					 * taskId:发送tuple的组件id
+					 * values:tuple的值
+					 * 返回值要发往哪个task
+					 */
+					@Override
+					public List<Integer> chooseTasks(int taskId, List<Object> values) {
+						return null;
+					}
+				}
+
+五、Storm的可靠性
+	Storm提供了数据流处理时的可靠性，所谓的可靠性是指spout发送的每个tuple都能够执行完整的处理过程。
+	
+	1.spout的可靠性
+		spout需要记录它发射出去的tuple，当下游bolt处理tuple或子tuple失败时，spout能够重新发射该tuple。
+		bolt在处理tuple或子tuple时，无论是否成功都需要向上游节点进行报告或者报错。
+		而在ISpout接口中定义了三个可靠性相关的API:
+			nextTuple
+			ack
+			fail
+		每个bolt都要向上一级负责报告自己的处理结果，如果spout的直接子bolt，都向spout进行了确认应答，表明后续处理都完成，则spout会调用ack方法来表明该消息已经完全处理了。如果任何一个bolt处理tuple报错，或者处理超时，spout会调用fail方法。
+
+	2.bolt的可靠性
+		在发射衍生的tuple时，需要锚定下一级的tuple。
+		子bolt处理消息成功或者失败时分别发送确认应答或者报错给父tuple或父spout。	
+		锚定的意思是建立tuple和衍生出的tuple之间的对应关系，这样下游的bolt可以通过应答确认/报错或超时来加入到tuple树结构中来。
+		collector.emit(tuple,new Values(word));
+		**此方法具有重载的方法，不锚定子节点，这种方式不会进行锚定操作，非锚定的tuple不会对数据流的可靠性起作用，如果一个非锚定的tuple在下游处理失败，原始的根tuple不会重新发送。
+		collector.emit(new Values(word));
+		
+		当处理完成或者发送了新tuple之后，可靠数据流中的bolt需要应答读入的tuple:
+			this.collector.ack(tuple);
+		如果处理失败，则spout必须发射tuple,bolt就要明确的处理失败的tuple报错:
+			this.collector.fail(tuple);
+		如果因为超时的原因，或者显示调用OutputCollector.fail()方法，spout都会重新发送原始tuple。	
+
+
+六、配置Storm集群
+	1.概述
+		Storm集群遵循主/从结构。
+		Storm的主节点是半容错的。
+		Strom集群由一个主节点(nimbus)和一个或者多个工作节点(supervisor)组成。
+		除此之外Storm集群还需要一个ZooKeeper的来进行集群协调。
+
+	2.nimbus
+		nimbus守护进程主要的责任是管理，协调和监控在集群上运行的topology。
+		包括topology的发布，任务的指派，事件处理失败时重新指派任务。
+
+		将topology发布到Storm集群，将预先打包成jar文件的topology和配置信息提交到nimbus服务器上，一旦nimbus接收到topology的压缩包，会将jar包分发到足够数量的supervisor节点上，当supervisor节点接收到了topology压缩文件，nimbus就会指派task到每个supervisor并且发送信号指示supervisor生成足够的worker来执行指派的task。
+
+		nimbus记录所有的supervisor节点的状态和分配给他们的task，如果nimbus发现某个supervisor没有上报心跳或者已经不可达了，他将会将故障supervisor分配的task重新分配到集群中的其他supervisor节点。
+
+		nimbus并不参与topology的数据处理过程，只是负责topology的初始化、任务分发和进行监控。因此，即使nimbus守护进程在topology运行时停止了，只要分配的supervisor和worker健康运行，topology会一直继续处理数据，所以称之为半容错机制。
+
+	3.supervisor
+		supervisor守护进程等待nimbus分配任务后生成并监控workers执行任务。
+		supervisor和worker都是运行在不同的JVM进程上，如果supervisor启动的worker进程因为错误异常退出，supervisor将会尝试重新生成新的worker进程。
+
+七、安装配置Storm集群
+	1.安装JDK
+		略
+	2.安装zookeeper集群
+		略
+	3.安装Storm
+		解压安装包即可
+	4.配置Storm
+		修改$STORM_HOME/conf目录下的storm.yaml文件。
+
+		必须修改的项：
+			storm.zookeeper.services:配置zookeeper集群的主机名称。
+			nimbus.host:指定了集群中nimbus的节点。
+			supervisor.slots.ports:配置控制每个supervisor节点运行多少个worker进程。这个配置定义为worker监听的端口的列表，监听端口的个数控制了supervisor节点上有多少个worker的插槽。默认的storm使用6700~6703端口，每个supervisor节点上有4个worker插槽。
+			storm.local.dir:storm工作时产生的工作文件存放的位置，注意，要避免配置到/tmp下。
+	
+		可选的常用修改项：
+			nimbus.childopts(default: -Xms1024m):这项JVM配置会添加在启动nimbs守护进程的java命令行中。
+			ui.port(default:8080):这项配置指定了Storm UI的Web服务器监听的端口。
+			ui.childopts(default:-Xms1024m):这项JVM配置会添加在StormUI服务启动的Java命令行中。
+			supervisor.childopts(default:-Xms768m):这项JVM配置会添加Supervisor服务启动的Java命令行中。
+			worker.childopts(default:-Xms768m):这项JVM配置会添加worker服务启动的Java命令行中。
+			topology.message.timeout.secs(default:30):这个配置项定义了一个tuple树需要应答最大时间秒数限制，超过这个时间则认为超时失败。
+			topology.max.spout.pending(default:null):在默认值null的情况下，spout每当产生新的tuple时会立即向后端发送，由于下游bolt执行可能具有延迟，可能导致topology过载，从而导致消息处理超时。如果手动将该值改为非null正整数时，会通过暂停spout发送数据来限制同时处理的tuple不能超过这个数，从而达到为Spout限速的作用。
+			topology.enable.message.timeouts(default:true):这个选项用来锚定的tuple的超时时间。如果设置为false，则锚定的tuple不会超时。
+	
+	5.Storm命令
+
+	--启动命令
+		**在启动storm之前确保storm使用的zookeeper已经启动且可以使用
+		storm nimbus 启动nimbus守护进程
+		storm supervisor 启动supervisor守护进程
+		storm ui 启动stormui的守护进程，从而可以通过webUI界面来监控storm运行过程
+		storm drpc 启动一个DRPC服务守护进程
+
+	--管理命令
+		storm jar topology_jar topology_class[arguments...] 向集群提交topology。它会使用指定的参数运行topology_class中的main()方法，同时上传topology_jar文件到nimbus以分发到整个集群。提交后，Storm集群会激活并且开始运行topology。topology中的main()方法需要调用StormSubmitter.submitTopology()方法，并且为topology提供集群内唯一的名称。
+		storm kill topology_name[-w wait_time] 用来关闭已经部署的topology。
+		storm deactivate topology_name 停止指定topology的spout发送tuple
+		storm activate topology_name 恢复指定topology的spout发送tuple。
+		storm rebalance topology_name[-w wait_time][-n worker_count][-e component_name=executor_count] 指定storm在集群的worker之间重新平均地分配任务，不需要关闭或者重新提交现有的topology。当执行rebalance命令时，Storm会先取消激活topology，等待配置的的时间使剩余的tuple处理完成，然后再supervisor节点中均匀的重新分配worker。重新分配后，Storm会将topology恢复到之前的激活状态。
+
+		storm remoteconfvalue conf-name 用来查看远程集群中的配置参数值。
+		
+	6.把topology提交到集群中
+
+	案例：改造之前的单词计数案例，将其在集群中运行。
+		修改提交topology的代码：
+			StormSubmitter.submitTopology("mywc", conf, topology);
+		将程序打成jar包，同时设置jar包的主类
+		将jar包上传到集群中
+		通过命令执行jar包
+			storm jar /root/work/stormwc.jar cn.tedu.storm.wc.WordCountTopology
+		执行一段时间后，可以通过如果下命令关闭topology
+			storm kill mywc
+============================================================
+Strom的可靠处理引发的问题
+	在Storm进行可靠处理时，由于tuple可能被再次发送，所以在storm上进行统计个数之类的实现时，可能会存在重复计数问题。
+	Storm提供了机制可以实现"按顺序处理且只处理一次"的机制。
+	方案1：一次只处理一个tuple
+	事务型topology背后的核心思想是处理的数据必须能够保证强顺序性。最简单的实现方式就是一次只处理一个tuple，除非这个tuple处理成功，否则我们不去处理下一个tuple。
+	具体来说，每一个tuple都会跟一个唯一transaction id相关联，如果一个tuple处理失败了，然后需要重新发送，那么该tuple会使用完全相同的transaction id被发送。通常这个transaction id可以是一个递增的数字。
+	但是这种设计方式有非常大的问题，主要体现在tuple的处理是完全线性的，效率非常低下，没有利用到storm的并行计算能力。
+
+	方案2：一次处理一批tuple
+	与每次只处理一个tuple的简单方案相比， 一个更好的方案是每个transaction里面处理一批tuple。所以如果你在做一个计数应用， 那么你每次更新到总数里面的是整个batch里面的tuple数量。如果这个batch失败了，那么你重新发送这整个batch。相应地， 我们不是给每个tuple一个transaction id而是给整个batch分配一个transaction id，batch与batch之间的处理是强顺序性的， 而batch内部是可以并行的。
+	虽然这个设计比第一个设计好多了， 它仍然不是一个完美的方案。topology里面的worker会花费大量的时间等待计算的其它部分完成。例如，一个topology中存在多步计算，则后续计算没有完成前，前置的计算空闲等待，只有所有计算都完成后，才能接受新的数据继续计算，这造成了计算资源的浪费。
+
+	方案3：storm使用的方式
+	在storm的设计中，考虑到并不是所有工作都需要强顺序性的，所以将整个计算分为两部分
+		阶段1：processing阶段：这个阶段可以并行的操作执行
+		阶段2：commit阶段：这个阶段按照强顺序性执行操作
+		这两个阶段合起来称为一个transaction。在一个给定的时刻，可以有很多batch处于processing阶段，但是只有一个batch可以处在commit阶段。如果一个batch在processing或者commit阶段有任何错误， 那么整个transaction需要被重新进行。
+		
+============================================================
+StormDRPC
+	**LinearDRPCTopologyBuilder 已经过时 被Trident替代 以下内容暂缓
+	Storm里面引入DRPC主要是利用storm的实时计算能力来并行化CPU密集型（CPU intensive）的计算任务
+	DRPC其实不能算是storm本身的一个特性， 它是通过组合storm的原语stream、spout、bolt、 topology而成的一种模式(pattern)。
+	DRPC的storm topology以函数的参数流作为输入，而把这些函数调用的返回值作为topology的输出流(参考DRPC概述.jpg)。
+	Distributed RPC是由一个”DPRC服务器”协调(storm自带了一个实现)。DRPC服务器协调：① 接收一个RPC请求 ② 发送请求到storm topology ③ 从storm topology接收结果 ④ 把结果发回给等待的客户端。从客户端的角度来看一个DRPC调用跟一个普通的RPC调用没有任何区别。
+
+	案例：改造如上单词计数案例，通过DRPC机制实现单词结果查询
+		单机模式：
+			public class ExclaimBolt extends BaseBasicBolt {
+				@Override
+				public void execute(Tuple tuple, BasicOutputCollector collector) {
+					String input = tuple.getString(1);
+			        collector.emit(new Values(tuple.getValue(0), input + "!"));
+				}
+				@Override
+				public void declareOutputFields(OutputFieldsDeclarer declarer) {
+					declarer.declare(new Fields("id", "result"));
+				}
+			}
+			public class DRPCLocalDriver {
+				public static void main(String[] args) {
+					//创建DRPC构建器
+					LinearDRPCTopologyBuilder builder = new LinearDRPCTopologyBuilder("exclamation");
+					//指定构建起中的bolt
+					builder.addBolt(new ExclaimBolt(), 3);
+					//在本地模拟drpc服务器
+					LocalDRPC drpc = new LocalDRPC();
+					//创建带有模拟的drpc服务器的topology
+					StormTopology topology = builder.createLocalTopology(drpc);
+					
+					//启动本地集群运行topology
+					Config conf = new Config();
+					LocalCluster cluster = new LocalCluster();
+					cluster.submitTopology("drpc-demo", conf,topology);
+					
+					//模拟调用远程方法
+					String result = drpc.execute("exclamation", "hello");
+					System.out.println("---------------------------Results for 'hello':" + result);
+					
+					//关闭资源
+					cluster.shutdown();
+					drpc.shutdown();
+				}
+			}
+
+		集群模式：
+			启动drpc服务器：
+				storm drpc
+
+			配置storm.yaml中的drpc服务器地址：
+				**注意所有storm集群服务器中的配置都要修改
+				drpc.servers:
+				  - "hadoop01"
+			服务器端：
+				/**
+					在执行DRPC的过程中，execute方法接受的tuple中具有n+1个值，第一个为request-id即请求的编号，后n个字段是请求的参数
+					同时要求我们topology的最后一个bolt发送一个形如[id, result]的二维tuple：第一个field是request-id，第二个field是这个函数的结果。最后所有中间tuple的第一个field必须是request-id。
+				*/
+				public class ExclaimBolt extends BaseBasicBolt {
+					@Override
+					public void execute(Tuple tuple, BasicOutputCollector collector) {
+						String input = tuple.getString(1);
+				        collector.emit(new Values(tuple.getValue(0), input + "!"));
+					}
+					@Override
+					public void declareOutputFields(OutputFieldsDeclarer declarer) {
+						declarer.declare(new Fields("id", "result"));
+					}
+				}
+				public class DRPCRemoteDriver {
+					public static void main(String[] args) throws Exception {
+						//--指定一个被调用方法的名字
+						LinearDRPCTopologyBuilder builder = new LinearDRPCTopologyBuilder("myMethod");
+						//--设置要被调用topology中的执行bolt，可以设置多个
+						builder.addBolt(new ExclaimBolt(), 3);
+						//--提交topology到集群中运行
+						Config conf = new Config();
+						StormSubmitter.submitTopology("drpc-demo", conf, builder.createRemoteTopology());
+					}
+				}
+				
+			客户端：
+				public class DRPCClientDriver {
+					public static void main(String[] args) throws Exception {
+						DRPCClient client = new DRPCClient("192.168.242.101", 3772);
+						String result = client.execute("myMethod", "abcd");
+						System.out.println(result);
+					}
+				}
+
+
+============================================================
+零、Trident概述 
+	Trident是在storm基础上，一个以realtime 计算为目标的高度抽象
+	Stream是Trident中的核心数据模型，它被当做一系列的batch来处理。
+	在Storm集群的节点之间，一个stream被划分成很多partition（分区），对流的操作（operation）是在每个partition上并行进行的。
+	Stream是Trident中的核心数据模型：有些地方也说是TridentTuple，没有个标准的说法。
+	一个stream被划分成很多partition：partition是stream的一个子集，里面可能有多个batch，一个batch也可能位于不同的partition上
+
+	Trident共有五类操作
+		分区本地操作 Partition-local operations 对每个partition的局部操作，不产生网络传输
+		重分组操作 Repartitioning operations 对数据流的重新划分（仅仅是划分，但不改变内容），产生网络传输
+		聚合操作 Aggregation operations 
+		作用在分组流上的操作 Operations on grouped streams 
+		Merge、join 操作
+
+一、分区本地操作 Partition-local operations
+	0.准备
+		//--创建循环输出spout
+		//--FixedBatchSpout是Trident提供的一种预设的Spout，可以按顺序实现向外发射指定Value的效果，并且可以设定是否循环。通常用于测试。
+		FixedBatchSpout spout = new FixedBatchSpout(new Fields("name","sentence"), 3,
+				new Values("xiaoming","i am so shuai"),
+				new Values("xiaoming","do you like me"),
+				new Values("xiaohua","i do not like you"),
+				new Values("xiaohua","you look like fengjie"),
+				new Values("xiaoming","are you sure you do not like me"),
+				new Values("xiaohua","yes i am"),
+				new Values("xiaoming","ok i am sure"));
+		spout.setCycle(true);
+		//--或者
+		public class SentenceSpout extends BaseRichSpout{
+			private SpoutOutputCollector collector = null;
+			
+			private Values [] values = {
+					new Values("xiaoming","i am so shuai"),
+					new Values("xiaoming","do you like me"),
+					new Values("xiaohua","i do not like you"),
+					new Values("xiaohua","you look like fengjie"),
+					new Values("xiaoming","are you sure you do not like me"),
+					new Values("xiaohua","yes i am"),
+					new Values("xiaoming","ok i am sure")
+			};
+			
+			private int index = 0;
+			@Override
+			public void open(Map conf, TopologyContext context, SpoutOutputCollector collector) {
+				this.collector = collector;
+			}
+
+			@Override
+			public void nextTuple() {
+				collector.emit(values[index]);
+				index = index+1 == values.length ? 0 : index+1;
+				Utils.sleep(100);
+			}
+
+			@Override
+			public void declareOutputFields(OutputFieldsDeclarer declarer) {
+				Fields fields = new Fields("name","sentence");
+				declarer.declare(fields);
+			}
+		}
+		SentenceSpout spout = new SentenceSpout();
+
+		//--创建topology
+		TridentTopology topology = new TridentTopology();
+
+		//--TODO
+		
+		//--提交Topology给集群运行
+		Config conf = new Config();
+		LocalCluster cluster = new LocalCluster();
+		cluster.submitTopology("MyTopology", conf, topology.build());
+		
+		//--运行10秒钟后杀死Topology关闭集群
+		Utils.sleep(1000 * 10);
+		cluster.killTopology("MyTopology");
+		cluster.shutdown();
+		
+	1.过滤操作
+		过滤操作通过 过滤器 - Filter 实现。
+		所有Filter都要直接或间接实现Filter接口，通常我们会去继承BaseFilter抽象类
+		Filter收到一个输入tuple后可以决定是否留着这个tuple。
+		=========================
+		~方法：
+			each(Fields,Filter)
+			第一个参数：从当前Stream中获取哪几个属性进入过滤器，注意new Fields(String ...fields)中属性的声明声明的顺序决定了Filter中tuple中属性的顺序
+			第二个参数：Filter对象
+		=========================
+
+		案例1 - PrintFilter 实现拦截到tuple后按序打印所有拦截到的属性：
+			编写类继承BaseFilter：
+				class printFilter extends BaseFilter{
+					private TridentOperationContext context = null;
+					private String flag = null;
+					
+					public printFilter() {
+						this.flag = "0";
+					}
+					public printFilter(String flag) {
+						this.flag = flag;
+					}
+					public printFilter(int flag) {
+						this.flag = flag + "";
+					}
+					
+					@Override
+					public void prepare(Map conf, TridentOperationContext context) {
+						super.prepare(conf, context);
+						this.context = context;
+					}
+					@Override
+					public boolean isKeep(TridentTuple tuple) {
+						String str = "";
+						Fields fields = tuple.getFields();
+						Iterator<String> names = fields.iterator();
+						while(names.hasNext()){
+							String name = names.next();
+							Object value = tuple.getValueByField(name);
+							str = str + " # "+name+":"+value;
+						}
+						System.out.println("--flag:"+flag+"----numPartitions:"+context.numPartitions()+"------PartitionIndex:"+context.getPartitionIndex()+"--------------------"+str);
+						return true;
+					}
+				}
+			在代码TODO出增加如下代码：
+				topology.newStream("spout1", spout)
+					.each(new Fields("name","sentence"), new printFilter());
+				
+		案例2 - 开发Filter，过滤所有xiaohua说的话:
+			编写类继承BaseFilter：
+				class XiaohuaFilter extends BaseFilter{
+					@Override
+					public boolean isKeep(TridentTuple tuple) {
+						String name = tuple.getStringByField("name");
+						return !"xiaohua".equals(name);
+					}
+				}
+			在代码TODO出增加如下代码：
+				topology.newStream("spout1", spout)
+					.each(new Fields("name"), new XiaohuaFilter())
+					.each(new Fields("name","sentence"), new printFilter());
+
+		思考1 - 如果存在下列tuple和Filter，请问经过Filter的结果是什么：
+			假设存在如下过滤器：
+				public class MyFilter extends BaseFilter {
+				    public boolean isKeep(TridentTuple tuple) {
+				        return tuple.getInteger(0) == 1 && tuple.getInteger(1) == 2;
+				    }
+				}
+			假设你有如下这些tuple（包含的字段为["a", "b", "c"]）：
+				[1, 2, 3]
+				[2, 1, 1]
+				[2, 3, 4]
+			运行下面的代码：
+				mystream.each(new Fields("b", "a"), new MyFilter())
+			则得到的输出tuple为：
+				[2, 1, 1]
+				
+	2.函数操作
+		函数操作通过 函数 - Function 来实现。
+		所有Function都要直接或间接实现Function接口，通常我们会去继承BaseFunction抽象类。
+		一个function收到一个输入tuple后可以输出0或多个tuple。
+		输出tuple的字段被追加到接收到的输入tuple后面。
+		如果对某个tuple执行function后没有输出tuple，则该tuple被过滤。
+		如果对某个tuple执行function后产生了多个输出tuple，会造成tuple的增加。
+		=========================
+		~方法：
+			each(Fields,Function,Fields)
+			第一个参数：要从流中获取哪些Fields进入Function，注意new Fields(String ...fields)中属性的声明声明的顺序决定了Function中tuple中属性的顺序
+			第二个参数：Function对象
+			第三个参数：Function执行过后额外追加的属性的Fields
+		=========================
+
+		案例3 - 改造如上案例，增加性别属性：
+			写一个类继承BaseFunction：
+				public class GenderFunction extends BaseFunction{
+					@Override
+					public void execute(TridentTuple tuple, TridentCollector collector) {
+						String v = tuple.getStringByField("name");
+						if("xiaohua".equals(v)){
+							collector.emit(new Values("女"));
+						}else{
+							collector.emit(new Values("男"));
+						}
+					}
+				}
+			在如上TODO中增加以下代码：
+				topology.newStream("spout1", spout)
+					.each(new Fields("name"), new GenderFunction(),new Fields("gender"))
+					.each(new Fields("sentence","name","gender"), new printFilter());
+				
+		思考2 - 如果存在下列tuple和Function，请问经过Function的结果是什么：
+			假如有如下Function：
+				public class MyFunction extends BaseFunction {
+				    public void execute(TridentTuple tuple, TridentCollector collector) {
+				        for(int i=0; i < tuple.getInteger(0); i++) {
+				            collector.emit(new Values(i));
+				        }
+				    }
+				}
+			假设有个叫“mystream”的流(stream)，该流中有如下tuple（ tuple的字段为["a", "b", "c"] ），
+				[1, 2, 3]
+				[4, 1, 6]
+				[3, 0, 8]
+			运行下面的代码：
+				mystream.each(new Fields("b"), new MyFunction(), new Fields("d")))
+			则输出tuple中的字段为["a", "b", "c", "d"]，如下所示
+				[1, 2, 3, 0]
+				[1, 2, 3, 1]
+				[4, 1, 6, 0]
+
+	3.分区聚合操作
+		分区聚合操作由 聚合器 - CombinerAggregator, ReducerAggregator, Aggregator 来实现。
+		分区聚合操作(partitionAggregate)对每个Partition中的tuple(以batch为单位？)进行聚合.
+		与前面的Function在原tuple后面追加数据不同，分区聚合操作的输出会直接替换掉输入的tuple，仅输出分区聚合操作中发射的tuple。
+		=========================
+		~方法：
+			partitionAggregate(Fields,Aggreator/CombinerAggregator/ReducerAggregator,Fields)
+			第一个参数：要进入聚合器的字段们
+			第二个参数：聚合器对象
+			第三个参数：聚合后输出的字段们
+		~三种聚合器
+			CombinerAggregator接口：
+				public interface CombinerAggregator <T> extends Serializable {  
+					T init(TridentTuple tuple);  
+					T combine(T val1, T val2);  
+					T zero();  
+				}  
+				CombinerAggregator接口只返回一个tuple，并且这个tuple也只包含一个field。
+				执行过程：
+					针对每个分区都执行如下操作
+					每个分区处理开始前首先调用zero()方法产生一个初始值val1。
+					之后对应分区中的每个tuple，都会进行如下操作：
+						先调用init方法对当前tuple进行处理，产生当前tuple对应的val2
+						再调用combine函数将之前的val1和当前tuple对应的val2进行合并处理，返回合并后的值成为新的val1
+					循环如上步骤处理分区中内的所有tuple，并将最终产生的val1作为整个分区合并的结果返回。
+
+			ReducerAggregator接口：
+				public interface ReducerAggregator <T> extends Serializable {  
+			        T init();  
+			        T reduce(T curr, TridentTuple tuple);  
+			    } 
+				ReducerAggregator接口只返回一个tuple，并且这个tuple也只包含一个field。
+				执行过程：
+					针对每一个分区都执行如下操作
+					每个分区处理开始时先调用init方法产生初始值curr。
+					对分区中的每个tuple，依次调用reduce方法，方法中传入当前curr和当前tuple进行处理，产生新的curr返回
+					整个分区处理完，将最终产生的curr作为整个分区合并的结果返回。
+
+			Aggregator接口 - 通常我们不会直接实现此接口，更多的时候继承BaseAggregator抽象类：
+				public interface Aggregator<T> extends BaseAggregator {  
+					T init(Object batchId, TridentCollector collector);  
+					void aggregate(T val, TridentTuple tuple, TridentCollector collector);  
+					void complete(T val, TridentCollector collector);  
+				}  
+				Aggregator是最通用的聚合器。
+				Aggregator接口可以发射含任意数量属性的任意数据量的tuples,并且可以在执行过程中的任何时候发射:
+				执行过程：
+					针对每一个分区都执行如下操作
+					init：在处理数据之前被调用，它的返回值会作为一个状态值传递给aggregate和complete方法
+					aggregate：用来处理每一个输入的tuple，它可以更新状态值也可以发射tuple
+					complete：当所有tuple都被处理完成后被调用     
+		=========================
+			
+		案例4 - 测试CombinerAggregator：
+			写一个类继承CombinerAggregator：
+			class testPA implements CombinerAggregator<Integer>{
+				@Override
+				public Integer init(TridentTuple tuple) {
+					System.out.println("init===="+tuple.getStringByField("sentence"));
+					return 1;
+				}
+				@Override
+				public Integer combine(Integer val1, Integer val2) {
+					System.out.println("combine===="+val1+"~"+val2);
+					return val1+1;
+				}
+				@Override
+				public Integer zero() {
+					System.out.println("zero====0");
+					return 0;
+				}
+			}
+
+		案例5 - 测试ReducerAggregator：
+			class testRA implements ReducerAggregator<Integer>{
+				@Override
+				public Integer init() {
+					System.out.println("init====");
+					return 1;
+				}
+
+				@Override
+				public Integer reduce(Integer curr, TridentTuple tuple) {
+					System.out.println("reduce===="+curr+"==="+tuple);
+					return curr+1;
+				}
+			}
+
+		案例6 - 测试Aggregator：
+			class testA extends BaseAggregator<Integer>{
+				@Override
+				public Integer init(Object batchId, TridentCollector collector) {
+					System.out.println("init===="+batchId);
+					return 0;
+				}
+
+				@Override
+				public void aggregate(Integer val, TridentTuple tuple, TridentCollector collector) {
+					System.out.println("aggregate===="+val+"============"+tuple);
+				}
+
+				@Override
+				public void complete(Integer val, TridentCollector collector) {
+					System.out.println("complete===="+val+"\r\n");
+				}
+			}
+
+		思考3 - 如果存在下列tuple和聚合器，请问经过聚合器的结果是什么：
+			假设输入流包括字段 ["a", "b"] ，并有下面的partitions：
+				Partition 0:
+					["a", 1]
+					["b", 2]
+				Partition 1:
+					["a", 3]
+					["c", 8]
+				Partition 2:
+					["e", 1]
+					["d", 9]
+					["d", 10]
+			有如下聚合器：
+				public class Sum implements CombinerAggregator<Number> {
+					@Override
+					public Number init(TridentTuple tuple) {
+						return (Number) tuple.getValue(0);
+					}
+
+					@Override
+					public Number combine(Number val1, Number val2) {
+						return Numbers.add(val1, val2);
+					}
+
+					@Override
+					public Number zero() {
+						return 0;
+					}
+				}
+			执行如下代码：
+				mystream.partitionAggregate(new Fields("b"), new Sum(), new Fields("sum"))；  
+			则这段代码的输出流包含如下tuple，且只有一个"sum"的字段：
+				Partition 0:
+				[3]
+				Partition 1:
+				[11]
+				Partition 2:
+				[20]
+		**Storm默认提供了几种聚合器的实现：
+			Count() - 用来实现计数
+			Sum() - 用来实现求和
+
+		案例7：改造如上案例，进行分区聚合统计每个人总共说了多少句话
+			修改SentenceSpout:
+				public void nextTuple() {
+					if(index>=values.length)return;
+					collector.emit(values[index]);
+					//index = index+1 == values.length ? 0 : index+1;
+					index++;
+					Utils.sleep(100);
+				}
+			在如上TODO处：
+				topology.newStream("spout1", spout)
+					.shuffle()
+					.partitionAggregate(new Fields("name"),new Count(), new Fields("count"))
+					.each(new Fields("count"), new printFilter());
+			
+			
+		
+	4.stateQuery
+		//？？？TODO
+
+	5.partitionPersist
+		//？？？TODO
+
+	6.投影操作 - projection
+		投影操作
+			投影操作作用是仅保留Stream指定字段的数据。
+			=========================
+			~方法：
+				project(Fields)
+				第一个参数：要保留的字段们
+			=========================
+			经Stream中的project方法处理后的tuple仅保持指定字段（相当于过滤字段）
+
+
+			案例8 - 改造如上案例，只保留人名：
+				在如上TODO中增加以下代码：
+				topology.newStream("spout1", spout)
+					.project(new Fields("name"))
+					.each(new Fields("name"), new printFilter());
+
+二、重分组操作 - Repartitioning operations
+	Repartition操作可以改变tuple在各个task之上的划分。
+	Repartition也可以改变Partition的数量。
+	Repartition需要网络传输。
+
+	重分组时的并发度设置：
+		0.parallelismHint：设置重分区时的并发度，此方法将会将会向前寻找最近的一次重分区操作，设置这两个方法之间的所有操作的并发度为指定值，如果不设置所有重分区操作的并发度默认为1。
+	重分组操作包括如下方式：
+		**重分区方法如果不通过parallelismHint方法设置并发度则默认后续方法的并发度为1.
+		1.shuffle：随机将tuple均匀地分发到目标partition里。
+		2.broadcast：每个tuple被复制到所有的目标partition里，在DRPC中有用 — 你可以在每个partition上使用stateQuery。
+		3.partitionBy：对每个tuple选择partition的方法是：(该tuple指定字段的hash值) mod (目标partition的个数)，该方法确保指定字段相同的tuple能够被发送到同一个partition。（但同一个partition里可能有字段不同的tuple）
+		4.global：所有的tuple都被发送到同一个partition。
+		5.batchGlobal：确保同一个batch中的tuple被发送到相同的partition中。
+		6.patition：该方法接受一个自定义分区的function（实现backtype.storm.grouping.CustomStreamGrouping）
+
+	案例8 - 改造如上案例，分别用不同分区处理xiaoming和xiaohua的发言，统计每个人说话的次数：
+		public class NameAgg extends BaseAggregator<Integer>{
+			private Map<String,Integer> map = new HashMap<String,Integer>();
+			@Override
+			public Integer init(Object batchId, TridentCollector collector) {
+				return null;
+			}
+
+			@Override
+			public void aggregate(Integer val, TridentTuple tuple, TridentCollector collector) {
+				String name = tuple.getStringByField("name");
+				map.put(name, map.containsKey(name) ? map.get(name)+1 : 1);
+			}
+
+			@Override
+			public void complete(Integer val, TridentCollector collector) {
+				for(Map.Entry<String, Integer> entry : map.entrySet()){
+					collector.emit(new Values(entry.getKey(),entry.getValue()));
+				}
+			}
+		}
+		
+		topology.newStream("spout1", spout)
+			.partitionBy(new Fields("name"))
+			.partitionAggregate(new Fields("name","sentence"),new NameAgg(), new Fields("name","count"))
+			.each(new Fields("name","count"), new printFilter())
+			.parallelismHint(2)
+			;
+！！！！！！！！！！！！！！！！以上代码完整测试！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+三、聚合操作 - Aggregation operations
+	Trident中有aggregate()和persistentAggregate()方法对流进行聚合操作。
+
+	1.aggregate()
+		在每个batch上独立的执行,进行全局的聚合
+		当使用ReduceAggregator或者Aggregator聚合器时，流先被重新划分成一个大分区(仅有一个partition)，然后对这个partition做聚合操作；
+		当使用CombinerAggregatr时，Trident首先对每个partition局部聚合，然后将所有这些partition重新划分到一个partition中，完成全局聚合。
+		相比而言，CombinerAggregator更高效，推荐使用。
+
+		例子： 
+			使用aggregate()对一个batch操作得到一个全局的count
+				mystream.aggregate(new Count(), new Fields("count"))
+
+	2.persistemAggregate() 
+		对所有batch中的所有tuple进行聚合，并将结果存入state源中。
+		当使用ReduceAggregator或者Aggregator聚合器时，流先被重新划分成一个大分区(仅有一个partition)，然后对这个partition做聚合操作；
+		当使用CombinerAggregator时，Trident首先对每个partition局部聚合，然后将所有这些partition重新划分到一个partition中，完成全局聚合。
+		相比而言，CombinerAggregator更高效，推荐使用。
+		**同在partitionAggregate中一样，aggregate中的聚合器也可以使用链式用法。但是，如果你将一个CombinerAggregator链到一个非CombinerAggregator后面，Trident就不能做局部聚合优化。
+		//TODO
+
+	
+四、分组操作 - Operations on grouped streams
+	groupBy操作先对流中的指定字段做partitionBy操作，让指定字段相同的tuple能被发送到同一个partition里。然后在每个partition里根据指定字段值对该分区里的tuple进行分组。
+	参看图：Group By原理
+
+	如果你在一个grouped stream上做聚合操作，聚合操作将会在每个分组(group)内进行，而不是整个batch上。
+	GroupStream类中也有persistentAggregate方法，该方法聚合的结果将会存储在一个key值为分组字段(即groupBy中指定的字段)的MapState中，这些还是在Trident state一文中讲解。
+	//TODO
+
+
+五、合并和连接 - Merges and joins
+	最后一部分内容是关于将几个stream汇总到一起，最简单的汇总方法是将他们合并成一个stream，这个可以通过TridentTopology中的merge方法完成
+
+	例如：
+		topology.merge(stream1, stream2, stream3);
+		Trident指定新的合并之后的流中的字段为stream1中的字段。
+
+	另一种汇总方法是使用join（连接，类似于sql中的连接操作）。下面的在stream1( ["key", "val1", "val2"] ) 和 stream2[, "val1"]
+
+	例如：
+		topology.join(stream1, new Fields("key"), stream2, new Fields("x"), new Fields("key", "a", "b", "c"));
+	上面这个连接操作使用”key”和”x”字段作为连接字段。由于输入流中有重叠的字段名（如上面的val1字段在stream1和stream2中都有），Trident要求指定输出的新流中的所有字段。输出流中的tuple要包含下面这些字段：
+
+	1、连接字段列表：如本例中的输出流中的”key”字段对应stream1中的”key”和stream2中的”x”。
+	2、来自所有输入流中的非连接字段列表，按照传入join方法中的输入流的顺序：如本例中的”a”和”b”对应于stream1中的”val1″ 和 “val2″，”c” 对应stream2中的 “val1″。
+		
+
+
+
+
+
+
+
+============================================================
+
+
+=====Trident中的状态处理 - State in Trident - 参看 Storm高级原语（五） — State in Trident http://www.flyne.org/article/222=======================================================
+
+
+============================================================			
+Storm Trident
+	Trident是在storm基础上，一个以实时计算为目标的高度抽象。 它在提供处理大吞吐量数据能力（每秒百万次消息）的同时，也提供了低延时分布式查询和有状态流式处理的能力。Trident也提供一致性（consistent）、有且仅有一次（exactly-once）等语义，这使得我们在使用trident toplogy时变得容易。
+	Trident在处理输入stream的时候会把输入转换成batch（包含若干个tuple）来处理。
+	Trident非常酷的一点就是它提供完全容错的（fully fault-tolerant）、处理一次且仅一次（exactly-once）的语义。这就让你可以很轻松的使用Trident来进行实时数据处理。Trident会把状态以某种形式保持起来，当有错误发生时，它会根据需要来恢复这些状态。
+Trident Spout
+	each():
+		操作batch中的每一个tuple内容，一般与Filter或者Function函数配合使用。
+
+	each(new Fields("xxx",...),new XxxFilter()):
+		第一个参数:用来指定要选择哪些字段给Filter处理，一个tuple可能有很多字段，通过设置该字段，可以隐藏其他字段，仅仅只处理指定字段(其他字段实际还在)。
+		第二个参数:一个Filter，自己定义功能。
+
+
+	each(new Fields("xxx",...),new XxxFunction(),new Fields("xxxx",...))
+		第一个参数:用来指定要选择哪些字段给Function处理，一个tuple可能有很多字段，通过设置该字段，可以隐藏其他字段，仅仅只处理指定字段(其他字段实际还在)。
+		第二个参数:处理用的Function,自己定义功能
+		第三个参数:要在输出中追加的字段，追加的字段会加在所有字段的最后面。
+
+	project(new Filelds("xxx",...));
+		上面每个each()方法的第一个Field字段仅仅是隐藏掉没有指定的字段内容，实际上被隐藏的字段依然还在tuple中，如果想要彻底丢掉它们，我们就需要用到project()方法。	
+
+	parallelismHint()		
+		指定Topology的并行度，即用多少线程执行这个任务。
+
+	===重定向方式========================
+	shuffle()	
+		把tuple随机的route下一层的线程中。
+	partitionBy()
+		则根据我们的指定字段按照一致性哈希算法route到下一层的线程中，也就是说，如果我们用partitionBy()的话，同一个字段名的tuple会被route到同一个线程中。
+	broadcast()
+		每个tuple都被广播到所有的分区，这种方式在drcp时非常有用，比如在每个分区上做stateQuery
+	global()
+		所有的tuple都被发送到一个分区，这个分区用来处理整个Stream
+	batchGlobal()
+		一个Batch中的所有tuple都被发送到同一个分区，不同的Batch会去往不同的分区
+	Partition()
+		通过一个自定义的分区函数来进行分区，这个自定义函数实现了 backtype.storm.grouping.CustomStreamGrouping
+	aggregate()
+		它会随机启动一个单独的线程来进行这个聚合操作。
+	================================
+	.partitionAggregate(new Fields("",...),new XxxxAggregator(...),new Fields(...))执行聚合操作
+		它不是一个重定向方法，它仅仅是对当前partition上的各个batch执行聚合操作
+
+	Aggregator - 聚合
+
+	BaseAggregator
+		init():当刚开始接收到一个batch时执行
+		aggregate():在接收到batch中的每一个tuple时执行
+		complete():在一个batch的结束时执行     
+
+	CombinerAggregator
+	//TODO
+	ReducerAggregator
+	//TODO
+
+	
+
+	groupBy()
+		它会根据指定的字段创建一个GroupedStream，相同字段的tuple都会被重定向到一起，汇聚成一个group。groupBy()之后是aggregate，与之前的聚合整个batch不同，此时的aggregate会单独聚合每个group。我们也可以这么认为，groupBy会把Stream按照指定字段分成一个个stream group，每个group就像一个batch一样被处理。
+		  不过需要注意的是，groupBy()本身并不是一个重定向操作，但如果它后面跟的是aggregator的话就是，跟的是partitionAggregate的话就不是。
+
+
+
+

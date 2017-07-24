@@ -1,0 +1,189 @@
+﻿二、Hive操作CREATE：
+	1、创建普通表
+		CREATE TABLE [IF NOT EXITS] 表名(字段名称 类型,字段名称 类型) row format delimited fields terminated by '分隔符';
+		案例：
+		create table if not exists book(id int,name string) row format delimited fields terminated by '\t';
+	2、创建外部表
+		CREATE EXTERNAL TABLE [IF NOT EXITS] 表名(字段名称 类型,字段名称 类型) row format delimited fields terminated by '分隔符' location '路径';
+		案例：
+		create external table if not exists book1(id int,name string) row format delimited fields terminated by '\t' location '/hqldata';
+	3、创建分区表
+		CREATE TABLE [IF NOT EXITS] 表名(字段名称 类型,字段名称 类型) PARTITIONED BY(字段名称 类型) row format delimited fields terminated by '分隔符';
+		案例1：
+		create table if not exists book2(id int,name string) partitioned by(category string) stored as textfile;
+		通过describe book2;可以查看到创建了分区category.
+		案例2：
+		根据两个字段(种类、出版时间)创建分区表：
+		create table book3(id int,name string) partitioned by(category string,time timestamp) row format delimited fields terminated by '\t';
+		通过describe book3;可以查看到有俩个分区字段category、time.
+	4、创建分桶表
+		CREATE TABLE 表名(字段名称 类型,字段名称 类型) CLUSTERED BY(字段名称) into 数量 buckets;
+		案例：
+		create table book4(id int,name string) clustered by(id) into 3 buckets row format delimited fields terminated by '\t';
+		通过：insert overwrite table book4 select id,name from book1;命令，将数据插入到分桶表中；
+		在hdfs中可看到生成了三个文件；
+	5、like创建表
+		CREATE [EXTERNAL] TABLE 表名 LIKE 已存在表名;
+		案例：
+		create table book5 like book1; 注意：只复制表结构，不会复制数据；
+	6、select创建表
+		CREATE TABLE 表名 AS SELECT 列名 FROM 已存在表名;
+		案例：
+		create table book6 as select id from book1;
+三、Hive操作ALTER：
+	1、	alter table：
+		1.1重命名表：
+			ALTER TABLE table_name RENAME TO new_table_name;
+			案例：将book6改名为book66；
+			alter table book6 rename to book66;
+		1.2修改表属性
+			ALTER TABLE table_name SET TBLPROPERTIES (property_name = property_value, property_name = property_value, ... );
+			案例：修改表book1的comment属性为this is a external table;
+			alter table book1 set tblproperties('comment'='this is a external table');
+			通过desc formatted book1;可查看到修改成功！
+	2、alter partition:
+		2.1增加分区
+			ALTER TABLE table_name ADD [IF NOT EXISTS] PARTITION (partition_column = partition_col_value) [LOCATION 'location1'] (partition_column = partition_col_value) [LOCATION 'location2'];
+		 	案例：给表book2增加分区category='zazhi'；
+		 	alter table book2 add partition(category='zazhi');
+		 	在hdfs中可查看到book2目录下多了一级目录：category=zazhi;
+		2.2重命名分区
+			ALTER TABLE table_name PARTITION partition_spec RENAME TO PARTITION partition_spec;
+			案例：
+			alter table book2 partition(category='zazhi') rename to partition(category='magazine');
+			在hdfs中可查看到book2目录下category=zazhi被修改为category=magazine;
+		//2.3恢复分区：直接在hdfs中创建相应的分区目录，但hive并没有该分区的元数据，此时可通过恢复分区加载到该分区；
+		//	MSCK REPAIR TABLE table_name;
+		//	案例：在hdfs book2中创建目录category=cartoon，并将该分区加入到表book2中；
+		//	MSCK REPAIR TABLE book2;
+		//	报错，没有成功；
+		2.4删除分区:
+			ALTER TABLE table_name DROP [IF EXISTS] PARTITION partition_spec[, PARTITION partition_spec, ...]
+			案例：删除book2表的categ ory=magazine分区；
+			alter table book2 drop partition(category='magazine');
+	3、alter either table or partition:
+		3.1修改表/分区的文件位置
+			ALTER TABLE table_name [PARTITION partition_spec] SET LOCATION "new location";
+			案例：
+			alter table book set location "/hqldata1";
+	4、alter column
+		4.1增加/替换列
+			ALTER TABLE table_name [PARTITION partition_spec] ADD|REPLACE COLUMNS (col_name data_type [COMMENT col_comment]);
+			案例：给book1表增加一列，列名为：language 类型为string；
+			alter table book1 add columns (language string comment "the language of book");
+		4.2修改列名/类型/位置/注释：该语句仅修改Hive元数据，不会触动表中的数据，用户需要确定实际的数据布局符合元数据的定义。	
+			ALTER TABLE table_name [PARTITION partition_spec] CHANGE [COLUMN] col_old_name col_new_name column_type [COMMENT col_comment] [FIRST|AFTER column_name];
+			案例1：修改book1表language列名为lan，并调整位置到id之后，name之前；
+			alter table book1 change column language lan string after id;	
+四、Hive操作DROP：
+	1、	删除表：
+		DROP TABLE [IF EXISTS] table_name;
+		案例：删除表book5
+		drop table book5;
+五、Hive操作SHOW：
+	1、查看数据库列表：
+		SHOW DATABASES;
+	2、查看表列表：
+		SHOW TABLES [IN database_name];
+		案例1：查看数据库hiveql下的表；
+			show tables in hiveql;
+		案例2：支持匹配
+			show tables 'book*';
+	3、查看某个表的分区列表：
+		SHOW PARTITIONS table_name;
+		案例：查看表book2的分区列表：
+		show partitions book2;
+	4、查看某个表的建表信息：
+		SHOW CREATE TABLE ([db_name.]table_name);
+		案例：查看表book2的建表信息；
+		show create table book2；
+	5、查看某个表的列信息：
+		SHOW COLUMNS (FROM|IN) table_name [(FROM|IN) db_name];
+		案例：
+		show columns from book2;
+六、Hive操作DESCRIBE：
+	1、查看数据库描述：
+		DESCRIBE DATABASE [EXTENDED] db_name;
+	2、查看表/列描述：
+		DESCRIBE [EXTENDED|FORMATTED] table_name;
+		案例：查看表book2的详细描述；
+		describe formatted book2;
+	3、查看分区描述：
+		DESCRIBE [EXTENDED|FORMATTED] table_name[.column_name] PARTITION partition_spec;
+	    案例：查看表book2的分区category=cartoon
+	    describe formatted book2 partition(category='cartoon'); 
+七、Hive操作LOAD： 
+	1、加载数据文件到table中：
+		LOAD DATA [LOCAL] INPATH 'filepath' [OVERWRITE] INTO TABLE tablename [PARTITION (partcol1=val1, partcol2=val2 ...)];
+		案例1：将/root/b.txt文件加载到表book2中；
+		load data local inpath '/root/b.txt' into table book2;
+		将hdfs://192.168.245.222:9000/hqldata1/a.txt文件加载到表book2中；
+		load data inpath 'hdfs://192.168.245.222:9000/hqldata1/a.txt' into table book2; 
+八、 Hive操作INSERT：
+	1、将行记录插入到表中：
+		INSERT INTO TABLE tablename [PARTITION (partcol1[=val1], partcol2[=val2] ...)] VALUES values_row [, values_row ...]
+	2、将查询的结果插入指定表中：
+		INSERT OVERWRITE TABLE tablename1 [PARTITION (partcol1=val1, partcol2=val2 ...) [IF NOT EXISTS]] SELECT ... FROM ...
+		案例：
+	3、将查询结果写入文件系统中：
+		INSERT OVERWRITE [LOCAL] DIRECTORY directory1 [ROW FORMAT row_format] [STORED AS file_format] SELECT ... FROM ...
+九、 Hive查询SELECT：
+	SELECT [ALL | DISTINCT] select_expr, select_expr, ...
+	FROM table_reference
+	[WHERE where_condition]
+	[GROUP BY col_list]
+	[ORDER BY col_list]
+	[CLUSTER BY col_list | [DISTRIBUTE BY col_list] [SORT BY col_list]]
+	[LIMIT number]
+十、 Hive查询JOIN：
+	table_reference JOIN table_factor [join_condition]
+		| table_reference {LEFT|RIGHT|FULL} [OUTER] JOIN table_reference join_condition
+		| table_reference LEFT SEMI JOIN table_reference join_condition
+		| table_reference CROSS JOIN table_reference [join_condition]
+ 
+	table_reference:
+		table_factor
+			| join_table
+ 
+	table_factor:
+		tbl_name [alias]
+			| table_subquery alias
+			| ( table_references )
+
+	练习：
+		1、创建表student:
+			create table student(sid int,sname string,sage int,sdept string) partitioned by(sex string) row format delimited fields terminated by '\t';
+		2、创建表course:
+			create table course(cid int,cname string) row format delimited fields terminated by '\t';
+		3、创建表score:
+			create table score(sid int,cid int,score int) clustered by(sid) into 2 buckets row format delimited fields terminated by '\t';
+		4、加载数据：
+			load data local inpath '/root/student_male.txt' overwrite into table student partition(sex='male');
+			load data local inpath '/root/student_female.txt' overwrite into table student partition(sex='female');
+			load data local inpath '/root/score.txt' overwrite into table score;
+			load data local inpath '/root/course.txt' overwrite into table course;
+		5、查询所有学生的id和姓名,并根据学生id排序:
+			select sid,sname from student sort by sid; 
+		6、统计女学生的人数:
+			select count(*) from student where sex='female';
+		7、查询选修1号课程的成绩排名前3的学生id和成绩:
+			select sid,score from score where cid=1 sort by score desc limit 3;
+			或者：
+			select sid,score from score where cid=1 order by score desc limit 3;
+		8、查询成绩有不及格（<60）的学生姓名:
+			select sname from student where sid in (select sid from score where score<60);
+		9、 求各个课程号及相应的选课人数:
+			select cid,count(1) from score group by cid;
+		10、计算每个学生的总成绩:
+			select sid,sum(score) from score group by sid;
+		11、查询选修了3门以上课程的学生学号: 
+			select sid from (select sid,count(cid) num from score group by sid) a where a.num>3;
+			或者： 
+			select sid from score group by sid having count(cid)>3; 
+		12、查询有选修课程的学生姓名:
+			select distinct sname from student join score on student.sid=score.sid;
+			此处应注意join的优化：尽量把数据量大的表放在前边，数据量大时可以明显的看出性能的提升。
+		13、查询选修2号课程且成绩在90分以上的所有学生:
+			select student.sname,score.score from student join score on student.sid=score.sid where score.cid=2 and score.score>90;
+		14、查询与liu在同一个sdept学习的学生:
+			select s1.sname from student s1 join student s2 on s1.sdept=s2.sdept and s2.sname='liu';

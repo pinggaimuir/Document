@@ -1,0 +1,71 @@
+1、查看当前hive会话中加载的所有函数的列表：show functions;
+2、查看某个函数的使用文档：desc function upper;
+3、查看某个函数更加详细的使用文档：desc function extended upper;
+4、调用函数：直接调用函数名，并传入参数：select upper(sname) from student;
+5、用户自定义UDF：extends UDF类，实现evaluate()函数；
+	案例：自定义一个函数从身份证号中提取生日信息：
+	数据：/root/people.txt;
+	创建表：
+		create table if not exists people(id int,name string,idcard string) row format delimited fields terminated by '\t';
+	加载数据到表people中：
+		load data local inpath '/root/people.txt' into table people;
+	编写UDF IdCardToBirthday();
+		package com.tedu.UDF;
+		import org.apache.hadoop.hive.ql.exec.UDF;
+		public class IdCardToBirthday extends UDF{
+			public String evaluate(String idCard) throws Exception{
+				char[] cs = idCard.toCharArray();
+				StringBuilder builder = new StringBuilder();
+				for(int i=6;i<cs.length-4;i++){
+					builder.append(cs[i]);
+				}
+				return builder.toString();
+			}
+		}
+	将上类打jar包export导出为IdCardToBirthday.jar;
+	将该jar包上传到linux /root/IdCardToBirthday.jar目录；
+	在hive中添加该jar包：
+		add jar /root/IdCardToBirthday.jar;
+	在hive中创建函数IdCardToBirthday:	
+		create temporary function IdCardToBirthday as 'com.tedu.UDF.IdCardToBirthday';
+	调用该函数:
+		select IdCardToBirthday(idcard) from people;
+
+	案例二：
+		CREATE TABLE log(PLATFORM string,USER_ID int,CLICK_TIME string,CLICK_URL string) row format delimited fields terminated by '\t';
+		load data local inpath '/root/log.txt' into table log;
+		源数剧：列说明：PLATFORM(平台) USER_ID(用户id) CLICK_TIME(访问时间) CLICK_URL(访问链接)
+			WEB 12332321 2013-03-21 13:48:31.324 /home/
+			WEB 12332321 2013-03-21 13:48:32.954 /selectcat/er/
+			WEB 12332321 2013-03-21 13:48:46.365 /er/viewad/12.html
+			WEB 12332321 2013-03-21 13:48:53.651 /er/viewad/13.html
+			WEB 12332321 2013-03-21 13:49:13.435 /er/viewad/24.html
+			WEB 12332321 2013-03-21 13:49:35.876 /selectcat/che/
+			WEB 12332321 2013-03-21 13:49:56.398 /che/viewad/93.html
+			WEB 12332321 2013-03-21 13:50:03.143 /che/viewad/10.html
+			WEB 12332321 2013-03-21 13:50:34.265 /home/
+			WAP 32483923 2013-03-21 23:58:41.123 /m/home/
+			WAP 32483923 2013-03-21 23:59:16.123 /m/selectcat/fang/
+			WAP 32483923 2013-03-21 23:59:45.123 /m/fang/33.html
+			WAP 32483923 2013-03-22 00:00:23.984 /m/fang/54.html
+			WAP 32483923 2013-03-22 00:00:54.043 /m/selectcat/er/
+			WAP 32483923 2013-03-22 00:01:16.576 /m/er/49.html
+		查询完后的数据格式：列说明：PLATFORM(平台) USER_ID(用户id) SEQ(访问次数) FROM_URL(前一个链接) TO_URL(点击后访问跳到链接)
+			对于某个平台上某个用户的第一条访问记录，其FROM_URL是NULL（空值）。
+			WEB 12332321 1 NULL /home/
+			WEB 12332321 2 /home/ /selectcat/er/
+			WEB 12332321 3 /selectcat/er/ /er/viewad/12.html
+			WEB 12332321 4 /er/viewad/12.html /er/viewad/13.html
+			WEB 12332321 5 /er/viewad/13.html /er/viewad/24.html
+			WEB 12332321 6 /er/viewad/24.html /selectcat/che/
+			WEB 12332321 7 /selectcat/che/ /che/viewad/93.html
+			WEB 12332321 8 /che/viewad/93.html /che/viewad/10.html
+			WEB 12332321 9 /che/viewad/10.html /home/
+			WAP 32483923 1 NULL /m/home/
+			WAP 32483923 2 /m/home/ /m/selectcat/fang/
+			WAP 32483923 3 /m/selectcat/fang/ /m/fang/33.html
+			WAP 32483923 4 /m/fang/33.html /m/fang/54.html
+			WAP 32483923 5 /m/fang/54.html /m/selectcat/er/
+			WAP 32483923 6 /m/selectcat/er/ /m/er/49.html
+		要求：1、实现一个能根据用户id计算用户访问次数的UDF，并给出使用此UDF实现该查询的Hive SQL；
+			SELECT t1.platform,t1.user_id,t1.n,t2.click_url FROM_URL,t1.click_url TO_URL FROM (select *,seqnum(USER_ID) n from log)t1 LEFT OUTER JOIN (select *,seqnum(USER_ID) n from log)t2 on t1.user_id = t2.user_id and t1.n = t2.n+1; 

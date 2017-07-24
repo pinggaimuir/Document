@@ -1,0 +1,57 @@
+0.导入开发包
+	storm开发包
+	kafka开发包
+	storm连接kafka的开发包
+	其他包
+
+1.开发storm连接kafka的spout
+	方式一：可以自己开发spout利用kafka提供的api消费数据
+	方式二：利用storm提供的kafka扩展包连接
+
+	原生api的方式：
+
+		//SPOUT的id 要求唯一
+		String KAFKA_SPOUT_ID = "flux_spout";
+		//要连接的kafka的topic
+		String CONSUME_TOPIC = "flux_topic";
+		//要连接的zookeeper的地址
+		String ZK_HOSTS = "192.168.242.101:2181"; 
+
+		//设定连接服务器的参数
+		BrokerHosts hosts = new ZkHosts(ZK_HOSTS);
+		SpoutConfig spoutConfig = new SpoutConfig(hosts, CONSUME_TOPIC, "/" + CONSUME_TOPIC, UUID.randomUUID().toString());
+		spoutConfig.scheme = new SchemeAsMultiScheme(new StringScheme());
+		KafkaSpout kafkaSpout = new KafkaSpout(spoutConfig);
+		   
+
+
+	Trident api方式：
+		//SPOUT的id 要求唯一
+		String KAFKA_SPOUT_ID = "xxx_spout";
+		//要连接的kafka的主题
+		String CONSUME_TOPIC = "testx";
+		//要连接的zookeeper的地址
+		String ZK_HOSTS = "192.168.242.101:2181"; 
+
+		//设定连接服务器的参数
+		BrokerHosts brokerHosts = new ZkHosts(ZK_HOSTS); 
+	    TridentKafkaConfig spoutConfig = new TridentKafkaConfig(brokerHosts, CONSUME_TOPIC);
+	    spoutConfig.scheme = new SchemeAsMultiScheme(new StringScheme()); 
+	    spoutConfig.socketTimeoutMs = 60000;
+
+	    //从kafka读取数据发射
+	    TridentTopology topology = new TridentTopology();
+	    Stream stream = topology.newStream(KAFKA_SPOUT_ID, new OpaqueTridentKafkaSpout(spoutConfig));
+	    stream.each(stream.getOutputFields(), new PrintFilter())
+	    	;
+	    
+		//--提交Topology给集群运行
+		Config conf = new Config();
+	  	conf.put(Config.TOPOLOGY_WORKERS, 1);
+	  	conf.put(Config.TOPOLOGY_DEBUG, false);
+		LocalCluster cluster = new LocalCluster();
+		cluster.submitTopology("MyTopology", conf, topology.build());
+		//--运行10秒钟后杀死Topology关闭集群
+		Utils.sleep(1000 * 100);
+		cluster.killTopology("MyTopology");
+		cluster.shutdown();

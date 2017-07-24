@@ -1,0 +1,364 @@
+一、HBASE概述
+	Hadoop Database 
+
+	NoSQL
+	面向列
+	提供实时更新查询
+	。。。。
+	
+	是一个高可靠性 高性能 面向列 可伸缩的分布式存储系统
+	利用hbase技术可以在廉价的PC上搭建起大规模结构化存储集群。
+	HBase利用HadoopHDFS作为其文件存储系统，利用Hadoop的MapReduce来处理HBase中的海量数据，利用Zookeeper作为协调工具
+
+	行键 - RowKey - 即hbase的主键，访问hbse中的数据有三种方式
+		通过单一行键访问
+		通过一组行键访问
+		全表扫描
+
+	列族(簇) - Column Family  
+		在建表时声明，不能后期增加，如果需要增加只能alter表，一个列族可以包含一个或多个列
+
+	列 - Column
+		可以动态增加列,不需要提前声明
+
+	单元格与时间戳 - cell timestamp 
+		通过row和columns确定的一个存储单元为一个cell。每个cell都保存着一个数据的多个版本，版本通过时间戳来区别。
+		数据都以二进制形式存储，没有数据类型的区别。
+		所有空数据都不占用空间。
+	
+	
+
+二、安装配置
+
+					HBase-0.92.x	HBase-0.94.x	HBase-0.96
+	Hadoop-0.20.205		S			X				X
+	Hadoop-0.22.x		S			X				X
+	Hadoop-1.0.x		S			S				S
+	Hadoop-1.1.x		NT			S				S
+	Hadoop-0.23.x		X			S				NT
+	Hadoop-2.x			X			S				S
+
+	前提条件，安装jdk，并配置了环境变量
+	1.单机模式
+		
+		直接解压安装包
+			tar -zxvf xxxxx.tar.gz
+		修改conf/hbase-site.xml,配置hbase使用的数据文件的位置，默认在/tmp/hbase-[username],此目录是linux的临时目录，可能会被系统清空，所以最好修改一下
+			<property>
+				<name>hbase.rootdir</name>
+				<value>file:///<path>/hbase</value>
+			</property>
+		测试
+			bin/start-hbase.sh
+			bin/hbase shell
+			hbase>status
+
+			hbase>help
+
+			hbase>create 'testtable',''colfam1','colfam2'
+			hbase>list
+			hbase>describe 'testtable'
+			hbase>put 'testtable','myrow-1','colfam1:q1','value-1'
+			hbase>put 'testtable','myrow-2','colfam1:q2','value-2'
+			hbase>put 'testtable','myrow-2','colfam1:q3','value-3'
+			hbase>scan 'testtable'
+			hbase>get 'testtable','myrow-1'
+			hbase>delete 'testtable','myrow-2','colfam1:q2'
+			hbase>scan 'testtable'
+			hbase>disable 'testtable'
+			hbase>drop 'testtable'
+
+			#建表时可以指定VERSIONS，配置的是当前列族在持久化到文件系统中时，要保留几个最新的版本数据，这并不影响内存中的历史数据版本
+			hbase>create 'testtable',{NAME=>'colfam1',VERSIONS=>3},{NAME=>'colfam2',VERSIONS=>1}
+			hbase>put 'testtable','myrow-1','colfam1:q1','value-1'
+			#直接使用scan而不加RAW=>true只能查询到最新版本的数据
+			hbase>scan 'testtable'
+			hbase>put 'testtable','myrow-1','colfam1:q1','value-2'
+			hbase>scan 'testtable'
+			hbase>put 'testtable','myrow-1','colfam1:q1','value-3'
+			hbase>scan 'testtable'
+			#可以在查询时加上RAW=>true来开启对历史版本数据的查询，VERSIONS=>3指定查询最新的几个版本的数据
+			hbase>scan 'testtable',{RAW=>true,VERSIONS=>3}
+			hbase>put 'testtable','myrow-1','colfam1:q1','value-4'
+			hbase>scan 'testtable'
+			hbase>scan 'testtable',{RAW=>true,VERSIONS=>3}
+
+			hbase>put 'testtable','myrow-1','colfam2:x1','value-1'
+			hbase>scan 'testtable'
+			hbase>put 'testtable','myrow-1','colfam2:x1','value-2'
+			hbase>scan 'testtable'
+			hbase>scan 'testtable',{RAW=>true,VERSIONS=>3}
+
+			#重启hbase
+			hbase>scan 'testtable',{RAW=>true,VERSIONS=>3}
+			
+			#TODO:画图解释结构，没有数据的不占用空间，物理结构按列存储，方便压缩。
+
+			hbase>exit
+			bin/stop-hbase.sh
+		--------------------
+		hbase命令行下不能使用删除：
+			可以使用 ctrl+删除键 来进行删除
+			或
+			修改xshell配置：
+				文件->属性->终端->键盘
+								->delete键序列[VT220Del]
+								->backspace键序列[ASCII127]
+		--------------------
+		
+	2.伪分布式模式
+		修改conf/hbase-env.sh修改JAVA_HOME
+			export JAVA_HOME=xxxx
+		修改hbase-site.xml,配置使用hdfs
+			<property>
+				<name>hbase.rootdir</name>
+				<value>hdfs://hadoop00:9000/hbase</value>
+			</property>
+			<property>
+				<name>dfs.replication</name>
+				<value>1</value>
+			</property>
+		启动hbase
+
+	3.完全分布式模式
+		修改conf/hbase-env.sh修改JAVA_HOME
+			export JAVA_HOME=xxxx
+		修改hbase-site.xml，配置开启完全分布式模式
+			配置hbase.cluster.distributed为true。
+			配置hbase.rootdir设置为HDFS访问地址
+				<property>
+					<name>hbase.rootdir</name>
+					<value>hdfs://hadoop00:9000/hbase</value>
+				</property>
+				<property>
+					<name>hbase.cluster.distributed</name>
+					<value>true</value>
+				</property>
+
+		配置region服务器,修改conf/regionservers文件，其中配置所有hbase主机，每个主机名独占一行，hbase启动或关闭时会按照该配置顺序启动或关闭主机中的hbase
+		
+		使用已有的zookeeper集群。这种方式下zookeeper脱离了hbase，不会随着hbase的启动关闭而启动关闭。需要自己来启动关闭。
+		hbase默认使用自带的zookeeper，如果需要使用外部zookeeper，需要先关闭
+			修改conf/hbase-env.sh禁用内部zookeeper
+				export HBASE_MANAGES_ZK false
+			在hbase-site.xml中配置Zookeeper的连接地址与端口号
+				<property>
+					<name>hbase.zookeeper.quorum</name>
+					<value>hadoop01:2181,hadoop02:2181,hadoop03:2181</value>
+				</property>
+					
+		--------------------------------------------------
+		~HBASE配置文件说明
+			hbase-env.sh配置HBase启动时需要的相关环境变量
+			hbase-site.xml配置HBase基本配置信息
+			HBASE启动时默认使用hbase-default.xml中的配置，如果需要可以修改hbase-site.xml文件，此文件中的配置将会覆盖hbase-default.xml中的配置
+			修改配置后要重启hbase才会起作用
+		--------------------------------------------------
+
+		启动集群
+			启动zookeeper
+			启动hdfs
+			启动hbase
+			访问http://xxxxx:60010来访问web界面，通过web见面管理hbase
+			也可以通过hbase shell脚本来访问bhase
+
+		关闭集群
+			stop-hbase.sh
+
+三、HBASE原理 参看文章
+	HBase的工作方式：
+		hbase中的表在行的方向上分隔为多个HRegion，分散在不同的RegionServer中
+		这样做的目的是在查询时可以将工作量分布到多个RegionServer中以提高速度
+		region由[startkey,endkey)表示
+		HRegion是hbase分布式存储和负载均衡的最小单元
+		要注意HRegion不在hdfs中，而是在RegionServer的内存中，在内存（其实也有数据在本地文件系统中，因为内存空间毕竟是有限的）中存储数据以提高查询性能，对于修改会将数据最终同步到hdfs中，以持久化数据。
+		hbase中的数据按照rowkey的字典顺序（字典顺序！！！先比较第一位 如果相同再比较第二位。。。）按序存储，所以当以rowkey查询数据时，可以提高速度。
+		hregion的分裂，当hregion变的很大时会分裂成两个，存放到不同的RegionServer中，防止一个Region过大，导致查询其中数据时速度很慢
+		hbase的系统结构：主要有client hmaster regionServer zookeeper
+
+
+	为什么hbase可以很快：
+		从逻辑结构上来说：
+			表按照行键进行了排序，所以查询时可以很快定位
+			数据按照行键切分为多个HRegion，分布在多个RegionServer中，查询大量数据时，多个RegionServer可以一起工作，从而提高速度
+		从物理结构上来说：
+			HRegion是存活在RegionServer的内存中的，读写会非常的高效
+			还有HFile的支持保证大量的数据可以持久化的保存
+			数据最终落地到HDFS中，分布式的存储，保证数据段可靠性和可扩展性
+
+	为什么hbase可以存储很多数据：
+		基于hdfs，所以支持可扩展性，可以通过增加大量的廉价的硬件提高存储容量
+		按列存储，空的数据不占用空间，当存储稀疏数据时，不会浪费空间
+		按例存储，同一列的数据存放在一起，而同一列的数据一般都是同样的类型的内容相似的数据，可以实现非常高效的压缩，节省空间
+	
+	为什么hbase的数据是可靠的：
+		基于hdfs，由hdfs的可靠性保证了hbase的可靠性--即数据可以有多个备份
+		利用zookeeper实现了HA，即使某一台机器挂掉另外的机器也可以很快的替换它
+
+	hbase和hive和传统的关系型数据库的比较：
+		比起传统的关系型数据库，可以存储半结构化非结构化的数据，可以存储和处理更大级别的数据，提供高效的查询，对于稀疏数据的处理更好，具有更好的横向扩展性，免费开源性价比很高。但是不能支持非常好的事务特性，只支持行级的事务。只能通过行键来查询，表设计时难度更高。而mysql用来存储结构化的数据提供更好的事务控制。
+		比起hive，hive只是在mapreduce上包了一层壳，本质上还是离线数据的处理的工具，实时查询性能有限，本质上是一个基于hadoop的数据仓库工具，不能支持行级别的新增修改和删除。hbase可以提供实时的数据的处理能力，适用于在线数据查询处理，本质上是一种数据库工具。
+	
+
+四、java api操作
+	导入开发包
+		将hbase安装包中lib下包导入java项目
+
+	创建表
+		
+		Configuration conf = HBaseConfiguration.create();
+		conf.set("hbase.zookeeper.quorum",
+				"CentOS01:2181,CentOS02:2181,CentOS03:2181");
+
+		HBaseAdmin admin = new HBaseAdmin(conf);
+
+		HTableDescriptor htd = new HTableDescriptor(TableName.valueOf("tabe"));
+		HColumnDescriptor hcd_fam1 = new HColumnDescriptor("fam1");
+		hcd_fam1.setMaxVersions(3);
+		HColumnDescriptor hcd_fam2 = new HColumnDescriptor("fam2");
+		htd.addFamily(hcd_fam1);
+		htd.addFamily(hcd_fam2);
+
+		admin.createTable(htd);
+
+		admin.close();
+	
+
+	插入数据
+		Configuration conf = HBaseConfiguration.create();
+		conf.set("hbase.zookeeper.quorum","CentOS01:2181,CentOS02:2181,CentOS03:2181");
+		
+		HTable table = new HTable(conf,"tabe");
+		Put put = new Put(Bytes.toBytes("row1"));
+		put.add(Bytes.toBytes("fam1"),Bytes.toBytes("col1"),Bytes.toBytes("val1"));
+		put.add(Bytes.toBytes("fam1"),Bytes.toBytes("col2"),Bytes.toBytes("val2"));
+		put.add(Bytes.toBytes("fam2"),Bytes.toBytes("col3"),Bytes.toBytes("val3"));
+		table.put(put);
+		
+		table.close();
+
+	
+
+		**javaapi操作hbase时，入口类为HTable，此对象创建时需要扫描.META表，以及其他操作，这非常耗时，所以，应该将该对象设置为单例，复用该对象，如果需要多个HTable对象，应该使用HTable
+		Pool,通过对象池复用对象。
+			HTablePool pool = new HTablePool(conf,10);//不知道为什么过时了？
+		**hbase所有修改数据的操作都保证了行级别的原子性，
+
+		试验：一次插入100万条数据
+			HTable table = new HTable(conf,"tabx");
+			List<Put> puts = new ArrayList<Put>();
+			for(int i=1;i<=1000000;i++){
+				Put put = new Put(Bytes.toBytes("row"+i));
+				put.add(Bytes.toBytes("fam1"),Bytes.toBytes("col1"),Bytes.toBytes("val"+i))
+				puts.add(put);
+
+				if(i % 10000 == 0){
+					table.put(puts);
+					puts = new ArrayList<Put>();
+				}
+			}
+			table.put(puts);
+			table.close();
+
+
+	获取数据
+		Configuration conf = HBaseConfiguration.create();
+		conf.set("hbase.zookeeper.quorum","CentOS01:2181,CentOS02:2181,CentOS03:2181");
+		
+		HTable table = new HTable(conf,"tabe");
+		Get get = new Get(Bytes.toBytes("row1"));
+		Result result = table.get(get);
+		byte [] bs = result.getValue(Bytes.toBytes("fam1"),Bytes.toBytes("col1"));
+		String str = Bytes.toString(bs);
+		System.out.println(str);
+		
+		table.close();
+	
+
+	获取数据集
+		Configuration conf = HBaseConfiguration.create();
+		conf.set("hbase.zookeeper.quorum","CentOS01:2181,CentOS02:2181,CentOS03:2181");
+	
+		HTable table = new HTable(conf,"tabe");
+		Scan scan = new Scan(Bytes.toBytes("row1"));
+		ResultScanner scanner = table.getScanner(scan);
+		Iterator it = scanner.iterator();
+		while(it.hasNext()){
+			Result result = (Result) it.next();
+			byte [] bs = result.getValue(Bytes.toBytes("fam1"),Bytes.toBytes("col1"));
+			String str = Bytes.toString(bs);
+			System.out.println(str);
+		}
+		table.close();
+	
+
+	删除数据
+		Configuration conf = HBaseConfiguration.create();
+		conf.set("hbase.zookeeper.quorum","CentOS01:2181,CentOS02:2181,CentOS03:2181");
+	
+		HTable table = new HTable(conf,"tabe");
+		Delete delete = new Delete(Bytes.toBytes("row1"));
+		table.delete(delete);
+		table.close();
+	
+		
+	删除表
+		
+		//1.创建配置对象
+		HBaseConfiguration conf = new HBaseConfiguration();
+		conf.set("hbase.zookeeper.quorum", "CentOS01");
+		//2.创建HBaseAdmin对象
+		HBaseAdmin admin = new HBaseAdmin(conf);
+		//3.删除表
+		admin.disableTable(Bytes.toBytes("tab1"));
+		admin.deleteTable(Bytes.toBytes("tab1"));
+		//4.关闭连接
+		admin.close();
+
+	批量查询数据
+
+
+	使用过滤器查询数据 -- 14种过滤器
+	
+五、HBase的表设计
+	HBase是用来存放半结构化 非结构化数据的数据库。
+
+	1.列族的设计
+		在设计hbase表时候，列族不宜过多，尽量的要少使用列族。
+		经常要在一起查询的数据最好放在一个列族中，尽量的减少跨列族的数据访问。	
+	2.行键的设计
+		hbase表中行键是唯一标识一个表的字段，首先要求唯一，另外最好是一些有意义的值，来帮助我们识别表中的数据。所以hbase中的行键是需要进行设计的。
+		hbase中的行键的设置至关重要，严重的影响hbase的执行效率和查询的便利性。
+
+
+		行键设计的基本原则：
+			行键必须唯一
+				必须唯一才能唯一标识数据
+			行键最好是字符串类型
+				因为数值类型在不同的系统中处理的方式可能不同
+			行键必须有意义
+				这样才能方便数据的查询
+			行键最好具有固定的长度
+				不同长度的数据可能会造成自然排序时排序的结果和预期不一致
+		
+		行键的最佳实践：
+			长度原则：
+				行键最多可以达到64KB,但是最好是在10~100字节之间，最好不要超过16字节，越短越好，最好是8字节的整数倍。
+			散列原则：
+				行键的设计将会影响数据在hbase表中的排序方式，这会影响region切分后的结果，要注意，在设计行键时应该让经常要查询的数据分散在不同的region中，防止某一个或某几个regionserver称为热点。
+			有序原则：
+				行键的设计将会影响数据在hbase表中的排序方式，所以一种策略是将经常连续查询的条件作为行键最前面的数据，这样一来可以方便批量查询
+
+
+六、hbase案例
+	用户表
+		id	name	age	gender email
+		001	zhang	19	男		zhang@qq.com
+		002	wang	20	男		wang@qq.com
+	用户访问的网页				
+		host 	viewtime	content	userid
+		www.baidu.com	2016-12-20	xxxx	001
+		www.sina.com	2016-11-10	xxxx	001
+		www.souhu.com	2016-11-09	xxxx	001
+		www.baidu.com	2016-12-20	xxxx	002
+		www.163.com		2016-12-20	xxxx	002

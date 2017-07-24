@@ -1,0 +1,6 @@
+最后的结果文件形式：
+li	Student [ name=li, chinese=232, english=253, math=188]
+wang	Student [ name=wang, chinese=159, english=194, math=237]
+zhang	Student [ name=zhang, chinese=229, english=199, math=239]
+
+每个人，每一科三个月的总成绩

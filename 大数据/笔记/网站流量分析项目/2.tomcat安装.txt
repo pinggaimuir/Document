@@ -1,0 +1,7 @@
+1.安装jdk
+	略
+
+2.安装tomcat
+	下载tomcat安装包
+	上传到linux下
+	解压

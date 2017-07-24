@@ -1,0 +1,139 @@
+四、小文件处理
+	0.小文件在hadoop中会有什么问题？
+		~每个小文件无论多小都会对应一个block，而每一个block在NameNode中都要有元数据的记录，如果存在大量小文件，则NameNode中的大量空间都用来存放这些小文件的元数据信息，其实是相当浪费的，对于NameNode的性能有比较大的影响。
+		~当使用mapreduce处理大量小文件时，默认情况下mapreduce在进行切片操作时规则是和block切的规则一样，即一个block一个InputSplit，而一个InputSplit就对应一个Mapper，这样会造成开启大量的MapperTask，但是每个MapperTask处理的数据量都很有限。极端情况下开启大量Mapper耗费内存甚至可能造成程序的崩溃。
+
+	1.Hadoop Archive
+		Hadoop Archive或者HAR，是一个高效地将小文件放入HDFS块中的文件存档工具，它能够将多个小文件打包成一个HAR文件，这样在减少namenode内存使用的同时，仍然允许对文件进行透明的访问。
+
+		HAR是在Hadoop file system之上的一个文件系统，因此所有fs shell命令对HAR文件均可用，只不过是文件路径格式不一样，HAR的访问路径可以是以下两种格式：
+		har://scheme-hostname:port/archivepath/fileinarchive
+		har:///archivepath/fileinarchive(本节点)
+
+		使用HAR时需要两点:
+			第一，对小文件进行存档后，原文件并不会自动被删除，需要用户自己删除；
+			第二，创建HAR文件的过程实际上是在运行一个mapreduce作业，因而需要有一个hadoop集群运行此命令。
+
+		HAR还有一些缺陷：
+			第一，一旦创建，Archives便不可改变。要增加或移除里面的文件，必须重新创建归档文件。
+			第二，要归档的文件名中不能有空格，否则会抛出异常，可以将空格用其他符号替换(使用-Dhar.space.replacement.enable=true 和-Dhar.space.replacement参数)。
+
+		命令：
+			hadoop archive -archiveName <NAME>.har -p <parent path> [-r <replication factor>]<src>* <dest>
+
+		案例：将hdfs:///small中的内容压缩成small.har
+				hadoop archive -archiveName small.har -p /small small1.txt /small
+				hadoop archive -archiveName small.har -p /small small* /small
+				hadoop archive -archiveName small.har -p /small /small
+		案例：查看HAR文件存档中的文件
+			hadoop fs -ls har:///small/small.har
+		案例：输出har文件内容到本地系统
+			hadoop fs -get har:///small/small.har /smallx
+		
+
+	2.SequenceFile
+		SequenceFile文件是Hadoop用来存储二进制形式的key-value对而设计的一种平面文件(Flat File)。目前，也有不少人在该文件的基础之上提出了一些HDFS中小文件存储的解决方案，他们的基本思路就是将小文件进行合并成一个大文件，同时对这些小文件的位置信息构建索引
+		文件不支持复写操作，不能向已存在的SequenceFile(MapFile)追加存储记录
+		当write流不关闭的时候，没有办法构造read流。也就是在执行文件写操作的时候，该文件是不可读取的
+		@Test
+		/**
+	     * SequenceFile 写操作
+	     */
+	    public void SequenceWriter() throws Exception{
+			final String INPUT_PATH= "hdfs://192.168.242.101:9000/big";
+			final String OUTPUT_PATH= "hdfs://192.168.242.101:9000/big2";
+			
+			//获取文件系统
+	        Configuration conf = new Configuration();
+	        conf.set("fs.defaultFS", "hdfs://192.168.242.101:9000");
+	        FileSystem fileSystem = FileSystem.get(new URI(INPUT_PATH), conf);
+	        
+	        //创建seq的输出流
+	        Text key = new Text();
+	        Text value = new Text();
+	        SequenceFile.Writer writer = SequenceFile.createWriter(fileSystem, conf, new Path(OUTPUT_PATH), key.getClass(), value.getClass());
+
+	        //写新的数据
+	        System.out.println(writer.getLength());
+	        key.set("small4.txt".getBytes());
+	        value.set("ddddddd".getBytes());
+	        writer.append(key, value);
+	        
+	        //关闭流
+	        IOUtils.closeStream(writer);
+	    }
+
+		@Test
+		/**
+	     * SequenceFile 读操作
+	     */
+	    public void sequenceRead() throws Exception {
+			final String INPUT_PATH= "hdfs://192.168.242.101:9000/big/big.seq";
+			
+			//获取文件系统
+	        Configuration conf = new Configuration();
+	        conf.set("fs.defaultFS", "hdfs://192.168.242.101:9000");
+	        FileSystem fileSystem = FileSystem.get(new URI(INPUT_PATH), conf);
+	        
+	        //准备读取seq的流
+	        Path path = new Path(INPUT_PATH);
+	        SequenceFile.Reader reader = new SequenceFile.Reader(fileSystem, path, conf);
+	        //通过seq流获得key和value准备承载数据
+	        Writable key = (Writable) ReflectionUtils.newInstance(reader.getKeyClass(), conf);
+	        Writable value = (Writable) ReflectionUtils.newInstance(reader.getValueClass(), conf);
+	        //循环从流中读取key和value
+	        long position = reader.getPosition();
+	        while(reader.next(key, value)){
+	        	//打印当前key value
+	            System.out.println(key+":"+value);
+	            //移动游标指向下一个key value
+	        	position=reader.getPosition();
+	        }
+	        //关闭流
+	        IOUtils.closeStream(reader);
+	    }
+		
+		
+		@Test
+		/**
+		 * 多个小文件合并成大seq文件
+		 * @throws Exception
+		 */
+		public void small2Big() throws Exception{
+			final String INPUT_PATH= "hdfs://192.168.242.101:9000/small";
+			final String OUTPUT_PATH= "hdfs://192.168.242.101:9000/big/big.seq";
+			//获取文件系统
+			Configuration conf = new Configuration();
+			conf.set("fs.defaultFS", "hdfs://192.168.242.101:9000");
+			FileSystem fs = FileSystem.get(conf);
+			//通过文件系统获取所有要处理的文件
+			FileStatus[] files = fs.listStatus(new Path(INPUT_PATH));
+			//创建可以输出seq文件的输出流
+			Text key = new Text();
+			Text value = new Text();
+			SequenceFile.Writer writer = SequenceFile.createWriter(fs, conf, new Path(OUTPUT_PATH), key.getClass(),value.getClass());
+			//循环处理每个文件
+			for (int i = 0; i < files.length; i++) {
+				//key设置为文件名
+				key.set(files[i].getPath().getName());
+				//读取文件内容
+				InputStream in = fs.open(files[i].getPath());
+				byte[] buffer = new byte[(int) files[i].getLen()];
+				IOUtils.readFully(in, buffer, 0, buffer.length);
+				//值设置为文件内容
+				value.set(buffer);
+				//关闭输入流
+				IOUtils.closeStream(in);
+				//将key文件名value文件内容写入seq流中
+				writer.append(key, value);
+			}
+			//关闭seq流
+			IOUtils.closeStream(writer);
+		
+		}
+
+	3.CompositeInputFormat - 用于多个数据源的join
+		此类可以解决多个小文件在进行mr操作时map创建过多的问题。
+		此类的原理在于，它本质上市一个InputFormat，在其中的getSplits方法中，将他能读到的所有的文件生成一个InputSplit
+		使用此类需要配合自定义的RecordReader，需要自己开发一个RecordReader指定如何从InputSplit中读取数据。
+		也可以通过参数控制最大的InputSplit大小。 -- CombineTextInputFormat.setMaxInputSplitSize(job, 256*1024*1024);

@@ -1,0 +1,44 @@
+public class LogServlet extends HttpServlet {
+	private static Logger logger = Logger.getLogger(LogServlet.class);
+	
+	public void doGet(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
+		StringBuffer sb = new StringBuffer();
+		String qs = request.getQueryString();
+		qs = URLDecoder.decode(qs,"utf-8");
+		String attrs [] = qs.split("&");
+		for(String attr : attrs){
+			String value = attr.split("=").length==2 ? attr.split("=")[1] : "";
+			sb.append(value +"|");
+		}
+		String str = sb.substring(0,sb.length()-1);
+		logger.info(str);
+	}
+
+	public void doPost(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
+		doGet(request, response);
+	}
+
+}
+
+log4j.rootLogger = info,stdout,flume,D
+
+log4j.appender.stdout = org.apache.log4j.ConsoleAppender
+log4j.appender.stdout.Target = System.out
+log4j.appender.stdout.layout = org.apache.log4j.PatternLayout
+log4j.appender.stdout.layout.ConversionPattern =%m%n
+
+log4j.appender.flume = org.apache.flume.clients.log4jappender.Log4jAppender
+log4j.appender.flume.Hostname = hadoop01
+log4j.appender.flume.Port = 44444
+log4j.appender.flume.UnsafeMode = true
+
+log4j.appender.D = org.apache.log4j.DailyRollingFileAppender
+log4j.appender.D.File = logs/log.log
+log4j.appender.D.Append = true
+log4j.appender.D.layout = org.apache.log4j.PatternLayout
+log4j.appender.D.layout.ConversionPattern =%m%n
+
+host	url		urlname	title	chset	scr		col	lg		je			ec				fv			cn		ref		uagent		stat_ss			stat_uv 				cip
+网站编号	访问地址	资源名 	网页标题	字符集	屏幕信息	颜色	语言环境	是否支持java	是否支持cookie	flash版本	随机数	前跳地址	用户agent	uv编号(uv_id)	uv信息(会话id_会话次数_当前时间) 客户ip(服务器端获取)

@@ -1,0 +1,85 @@
+zebra
+	NIO
+	Concurrent
+	RPC
+	AVRO(GoogleProtobuffer)
+	Zookeeper
+	zebra业务需求
+	分布式处理思想
+hadoop
+	云概念
+	hdfs
+		分布式文件存储的原理
+		NameNode
+		DataNode
+		SNN
+
+		元数据合并的过程
+		副本存放策略
+		hdfs的执行流程 写入数据 读取数据 删除数据
+
+	mapReduce
+		MapReduce框架的组成
+		Map、Reduce的执行步骤
+		MR内部执行流程
+		MR的序列化过程
+		Partition
+		sort
+		Combiner
+		**shuffle
+		输入控制
+		输出控制
+		grouping
+		二次排序
+		小文件处理
+
+flume
+	日志收集框架
+	agent source sink channel selector interceptor processor
+
+sqoop
+	连接关系型数据库和hdfs的桥梁
+
+hive
+	基于hdfs的数据仓库工具
+	元数据库切换
+	元数据库的结构
+	内部表/外部表
+	分区表/分桶表
+	内置函数
+	自定义函数
+	hql语法
+	java api操作
+
+hbase
+	hbase的逻辑结构
+	hbase的工作方式
+	java api的操作
+	!!!!!scan操作 -- filter
+	hbase的表设计
+	hbase的表查询
+	phoenix
+
+zebra的hive实现
+
+kafka
+	分布式高可靠高性能的消息队列
+	磁盘存储数据，连续读写提高性能
+	topic partition borker
+	api操作
+
+storm
+	数据的流式处理
+	spout
+	bolt
+	并发控制
+	数据流分组
+	可靠性保证
+	drpc
+	**Trident - 了解
+
+网站流量分析
+	埋点 - nginx反向代理服务器 - flume收集日志 - 实时处理
+									-离线处理
+
+scala / Spark

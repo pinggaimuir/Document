@@ -1,0 +1,88 @@
+Hadoop完全分布式安装
+
+前提
+	关闭防火墙
+		service iptables stop 	//关闭 立即生效
+		chkconfig iptables off	//永久关闭
+		
+	修改主机名
+		vim /etc/sysconfig/network
+			NETWORKING=yes
+			HOSTNAME=Hadoop01
+		vim /etc/hosts
+			127.0.0.1   localhost
+			::1         localhost
+			192.168.74.51 Hadoop01
+	卸载jdk
+		rpm -qa | grep java
+		rpm -e --nodeps java-1.6.0-openjdk-1.6.0.0-1.66.1.13.0.el6.x86_64
+	安装jdk并配置环境变量、配置HADOOP_HOME
+		#set java environment
+		JAVA_HOME=/usr/local/src/jdk1.7.0_75
+		HADOOP_HOME=/usr/local/src/hadoop-2.7.1
+		PATH=$JAVA_HOME/bin:$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+		CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+		export JAVA_HOME PATH CLASSPATH HADOOP_HOME
+		#使更改的配置立即生效
+		source /etc/profile 
+	配置免密登录
+		#生成自己的公钥私钥
+		ssh-keygen
+		#把生成的公钥拷贝到远程机器上
+		ssh-copy-id [user]@[host]
+
+
+安装zookeeper
+cd zookeeper_home
+mkdir data
+touch myid
+vim myid	数字
+
+配置zoo.cfg文件 （zoo_sample.cfg）
+dataDir=/usr/local/src/zookeeper-3.4.7/data
+
+server.1=hadoop01:2888:3888
+server.2=hadoop02:2888:3888
+server.3=hadoop03:2888:3888
+
+
+配置hadoop的配置文件
+hadoop-env.sh
+core-site.xml
+hdfs-site.xml
+mapred-site.xml
+yarn-site.xml
+slaves
+
+
+启动集群
+hadoop01上 ActiveNameNode
+	sbin/hadoop-daemons.sh start journalnode
+
+	#在zookeeper中生成对应的目录结构
+	hdfs zkfc -formatZK
+
+	#格式化NameNode
+	hadoop namenode -format
+
+	#启动NameNode
+	hadoop-daemon.sh start namenode
+
+hadoop02上 StandbyNameNode
+	#将NameNode上的数据同步到hadoop02
+	hdfs namenode -bootstrapStandby
+	#启动hadoop02上的NameNode作为standby
+	hadoop-daemon.sh start namenode
+
+hadoop01上启动DataNode
+	hadoop-daemons.sh start datanode
+
+hadoop03上启动yarn，配置RM的节点上启动yarn
+	sbin/start-yarn.sh
+
+hadoop01 hadoop02
+	sbin/hadoop-daemon.sh start zkfc
+
+#HDFS的一些命令
+hadoop fs -ls /
+hadoop fs -mkdir /hadoop

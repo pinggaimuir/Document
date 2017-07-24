@@ -1,0 +1,84 @@
+#建立数据库
+create database flux;
+
+#建立外部表
+create EXTERNAL table flux (host string,url String,urlname String,title String,chset String,scr String,col String,lg String,je String,ec String,fv String,cn String,ref String,uagent String,stat_uv String,stat_ss String,cip String) partitioned by (reportTime string) row format delimited fields terminated by '|';
+
+#增加分区
+ALTER TABLE flux add  PARTITION (reportTime='2017-01-08') location '/flux/reportTime=2017-01-08';
+
+#按天统计数据
+====================================================================================
+time
+	'2017-01-08'
+	
+pv
+	select count(*) as pv from  flux where reportTime='2017-01-08'
+	
+uv
+	select count(distinct stat_uv) as uv from flux where reportTime='2017-01-08'
+	
+vv	
+	select count(distinct split(stat_ss,'_')[0]) as vv from flux where reportTime='2017-01-08'
+	
+br
+	select round(a / b,2) as br from (select count(*) as a from (select count(distinct urlname) as pcount from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0] having pcount == 1) as tbr11 ) as tbr1 left join (select count(distinct split(stat_ss,'_')[0]) as b from flux where reportTime='2017-01-08') as tbr2;
+
+newip
+	select count(distinct cip) as newip from flux where cip not in (select distinct cip as history from (select * from flux) as tnewip where reportTime<>'2017-01-08') and reportTime='2017-01-08';
+
+avgtime
+	select round(avg(time),2) as avgtime from(select round((max(split(stat_ss,'_')[2]) - min(split(stat_ss,'_')[2]))/1000,0) time from flux group by split(stat_ss,'_')[0]) as tavgtime;
+
+newcust
+	select count(distinct stat_uv) as newcust from flux where stat_uv not in (select distinct stat_uv as history from (select * from flux) as tnewcust where reportTime<>'2017-01-08') and reportTime='2017-01-08';
+
+viewdeep
+	select round(avg(deep),2) as viewdeep from (select count(distinct urlname) as deep from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0]) as tviewdeep;
+	
+====================================================================================
+create table tongji(
+	time date,
+	pv int,
+	uv int,
+	vv int,
+	br double,
+	newip int,
+	avgtime double,
+	newcust int,
+	viewdeep double
+)row format delimited fields terminated by '|';
+
+create table tongji(time date,pv int,uv int,vv int,br double,newip int,avgtime int,newcust int,viewdeep int)row format delimited fields terminated by '|';
+
+
+insert overwrite table tongji 
+	select 
+		'2017-01-08', 
+		t1.pv, 
+		t2.uv, 
+		t3.vv, 
+		t4.br, 
+		t5.newip, 
+		t6.avgtime, 
+		t7.newcust, 
+		t8.viewdeep 
+	from  
+		(select count(*) as pv from flux where reportTime='2017-01-08') as t1  
+		left join  
+		(select count(distinct stat_uv) as uv from flux where reportTime='2017-01-08') as t2  
+		left join  
+		(select count(distinct split(stat_ss,'_')[0]) as vv from flux where reportTime='2017-01-08') as t3  
+		left join  
+		(select round(a / b,2) as br from (select count(*) as a from (select count(distinct urlname) as pcount from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0]) as tbr11 where pcount == 1) as tbr1 left join (select count(distinct split(stat_ss,'_')[0]) as b from flux where reportTime='2017-01-08') as tbr2) as t4  
+		left join  
+		(select count(distinct cip) as newip from flux where cip not in (select distinct cip as history from (select * from flux) as tnewip where reportTime<>'2017-01-08') and reportTime='2017-01-08') as t5  
+		left join  
+		(select round(avg(time),2) as avgtime from(select round((max(split(stat_ss,'_')[2]) - min(split(stat_ss,'_')[2]))/1000,0) time from flux group by split(stat_ss,'_')[0]) as tavgtime) as t6  
+		left join  
+		(select count(distinct stat_uv) as newcust from flux where stat_uv not in (select distinct stat_uv as history from (select * from flux) as tnewcust where reportTime<>'2017-01-08') and reportTime='2017-01-08') as t7  
+		left join  
+		(select round(avg(deep),2) as viewdeep from (select count(distinct urlname) as deep from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0]) as tviewdeep) as t8  ;
+
+
+insert overwrite table tongji select '2017-01-08', t1.pv, t2.uv, t3.vv, t4.br, t5.newip, t6.avgtime, t7.newcust, t8.viewdeep from  (select count(*) as pv from flux where reportTime='2017-01-08') as t1  left join  (select count(distinct stat_uv) as uv from flux where reportTime='2017-01-08') as t2  left join  (select count(distinct split(stat_ss,'_')[0]) as vv from flux where reportTime='2017-01-08') as t3  left join  (select round(a / b,2) as br from (select count(*) as a from (select count(distinct urlname) as pcount from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0]) as tbr11 where pcount == 1) as tbr1 left join (select count(distinct split(stat_ss,'_')[0]) as b from flux where reportTime='2017-01-08') as tbr2) as t4  left join  (select count(distinct cip) as newip from flux where cip not in (select distinct cip as history from (select * from flux) as tnewip where reportTime<>'2017-01-08') and reportTime='2017-01-08') as t5  left join  (select round(avg(time),2) as avgtime from(select round((max(split(stat_ss,'_')[2]) - min(split(stat_ss,'_')[2]))/1000,0) time from flux group by split(stat_ss,'_')[0]) as tavgtime) as t6  left join  (select count(distinct stat_uv) as newcust from flux where stat_uv not in (select distinct stat_uv as history from (select * from flux) as tnewcust where reportTime<>'2017-01-08') and reportTime='2017-01-08') as t7  left join  (select round(avg(deep),2) as viewdeep from (select count(distinct urlname) as deep from flux where reportTime='2017-01-08' group by split(stat_ss,'_')[0]) as tviewdeep) as t8;

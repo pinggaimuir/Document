@@ -1,0 +1,117 @@
+Spark 集群
+集群环境
+基于hadoop集群64bit（hadoop2.5.1、jdk1.7）
+
+CentOS 6.4下安装配置Spark-0.9集群
+
+ 
+
+Spark是一个快速、通用的计算集群框架，它的内核使用Scala语言编写，它提供了Scala、Java和Python编程语言high-level API，使用这些API能够非常容易地开发并行处理的应用程序。
+下面，我们通过搭建Spark集群计算环境，并进行简单地验证，来体验一下使用Spark计算的特点。无论从安装运行环境还是从编写处理程序（用Scala，Spark默认提供的Shell环境可以直接输入Scala代码进行数据处理），我们都会觉得比Hadoop MapReduce计算框架要简单得多，而且，Spark可以很好地与HDFS进行交互（从HDFS读取数据，以及写数据到HDFS中）。
+
+安装配置
+下载安装配置Scala
+
+ 
+
+1.   到Scala 官方网站下载，我使用的版本为scala-2.11.4.tgz
+
+2.   解压：tar –zvxf scala-2.11.4 –C /usr/local/program/scala/
+
+在etc/profile中增加环境变量SCALA_HOME，并使之生效：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+
+export SCALA_HOME=/hadoop/scala/  
+export PATH=$PATH:$SCALA_HOME/bin  
+
+ 
+
+下载安装配置Spark
+
+我们首先在主节点m1上配置Spark程序，然后将配置好的程序文件复制分发到集群的各个从结点上。下载解压缩：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+到apache官网下载，我使用的版本为：spark-1.1.0-bin-hadoop2.4.tgz  
+ tar –zvxf spark-1.1.0-bin-hadoop2.4.tgz  –C /usr/local/program/spark/   
+   
+
+在etc/profile中增加环境变量SPARK_HOME，并使之生效：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+
+
+export SPARK_HOME=/hadoop/spark/  
+export PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
+
+在m1上配置Spark，修改spark-env.sh配置文件：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+进入spark的conf目录    
+执行 cp spark-env.sh.template spark-env.sh  
+  
+ vi  spark-env.sh   
+    
+   
+
+在该脚本文件中，同时将SCALA_HOME、JAVA_HOME配置为Unix环境下实际指向路径，例如：
+
+ 
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+
+
+export SCALA_HOME=/hadoop/scala/  
+export JAVA_HOME=/hadoop/jdk    
+export HADOOP_HOME=/hadoop/hadoop2 
+export YARN_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export SPARK_JAR=/hadoop/spark/lib/spark-assembly-1.5.0-hadoop2.6.0.jar 
+   
+
+
+修改conf/slaves文件，将计算节点的主机名添加到该文件，一行一个，例如：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+
+s1    
+s2  
+
+ 
+
+最后，将profile、scala、Spark的程序文件和配置文件拷贝分发到从节点机器上：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+1.  scp –r /etc/profile  s1:/etc/  
+  
+然后在各节点执行source /etc/profile  
+  
+2.  scp –r scala  s1:/usr/local/program/  
+  
+3.  scp –r spark  s1:/usr/local/program/  
+  
+（同时也复制到s2机器上）  
+
+ 
+
+启动Spark集群
+
+我们会使用HDFS集群上存储的数据作为计算的输入，所以首先要把Hadoop集群安装配置好，并成功启动，我这里使用的是Hadoop 2.5.1版本。启动Spark计算集群非常简单，执行如下命令即可：
+
+配置好环境变量后直接可执行（spark sbin下的脚本文件）：
+
+[html] view plaincopy在CODE上查看代码片派生到我的代码片
+启动主节点（Master）: start-master.sh  
+  
+启动从节点（Slaves）: start-slaves.sh  
+
+
+
+进入spark-shell
+$spark-shell
+
+
+可以看到，在m1上启动了一个名称为Master的进程，在s1、s2上启动了一个名称为Worker的进程，如下所示，我这里也启动了Hadoop集群
+
+可以通过web端口访问spark 界面默认8080端口
+
+http://192.168.0.108:8080/

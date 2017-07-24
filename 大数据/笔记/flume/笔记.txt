@@ -1,0 +1,66 @@
+一、Flume
+
+1.概述
+
+
+2.模型
+
+3.入门案例
+
+
+4.Source
+	!!!1.Avro Source
+
+	2.Exec Source
+
+	!!!3.Spooling Directory Source
+
+	!4.NetCat Source
+
+	5.Sequence Generator Source
+
+	!6.HTTP Source
+
+	7.Custom source 
+
+5.Sink - 汇聚点
+	!1.logger
+
+	!!!2.Avro Sink	
+
+	!!!3.HDFS Sink
+	
+	4.Hive Sink
+
+	5.Custom Sink
+
+	6.File Roll Sink
+
+6.Channel
+	!!!1.Memory Channel	
+
+	!!!2.File Channel
+
+	!!!3.Spillable Memory Channel
+
+	4.自定义渠道
+
+7.Selector
+	1.复制模式
+		在扇出的时候，数据会被发送给所有的channel
+	2.多路复用(路由)模式
+		可以根据指定的头信息的不同，来实现对日志事件进行路由方式的传递
+
+8.Interceptor
+	拦截日志，增加或修改头信息，增加或修改体信息，控制是否允许日志继续传递
+
+	Timestamp Interceptor
+	Host Interceptor
+	Static Interceptor
+	UUID Interceptor
+	Search and Replace Interceptor
+	Regex Filtering Interceptor
+
+9.Processor
+	Failover Sink Processor
+	Load balancing Sink Processor

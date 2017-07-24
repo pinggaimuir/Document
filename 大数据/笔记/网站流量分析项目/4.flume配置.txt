@@ -1,0 +1,165 @@
+--------------------
+==============================
+#Agent a1的组件
+a1.sources  =  r1
+a1.sinks  =  k1 k2
+a1.channels  =  c1
+
+#描述/配置Source
+a1.sources.r1.type  =  avro
+a1.sources.r1.bind  =  0.0.0.0
+a1.sources.r1.port  =  44444
+
+##描述Sink
+a1.sinkgroups = g1
+a1.sinkgroups.g1.sinks = k1 k2
+a1.sinkgroups.g1.processor.type = load_balance
+a1.sinkgroups.g1.processor.backoff = true
+a1.sinkgroups.g1.processor.selector = random
+
+a1.sinks.k1.type  = avro
+a1.sinks.k1.hostname = Park01
+a1.sinks.k1.port = 44444
+
+a1.sinks.k2.type  = avro
+a1.sinks.k2.hostname = Park02
+a1.sinks.k2.port = 44444
+
+#描述内存Channel
+a1.channels.c1.type  =  memory
+a1.channels.c1.capacity  =  1000
+a1.channels.c1.transactionCapacity  =  100
+
+#为Channle绑定Source和Sink
+a1.sources.r1.channels  =  c1
+a1.sinks.k1.channel  =  c1
+a1.sinks.k2.channel  =  c1
+==============================
+==============================
+#Agent a1的组件
+a1.sources  =  r1
+a1.sinks  =  k1 k2
+a1.channels  =  c1 c2
+
+#描述/配置Source
+a1.sources.r1.type  =  avro
+a1.sources.r1.bind  =  0.0.0.0
+a1.sources.r1.port  =  44444
+
+##描述Sink
+a1.sinks.k1.type  = avro
+a1.sinks.k1.hostname = Park01
+a1.sinks.k1.port = 44444
+
+a1.sinks.k2.type  = avro
+a1.sinks.k2.hostname = Park02
+a1.sinks.k2.port = 44444
+
+#描述内存Channel
+a1.channels.c1.type  =  memory
+a1.channels.c1.capacity  =  1000
+a1.channels.c1.transactionCapacity  =  100
+
+a1.channels.c2.type  =  memory
+a1.channels.c2.capacity  =  1000
+a1.channels.c2.transactionCapacity  =  100
+
+#为Channle绑定Source和Sink
+a1.sources.r1.channels  =  c1 c2
+a1.sinks.k1.channel  =  c1
+a1.sinks.k2.channel  =  c2
+==============================
+==============================
+#Agent a1的组件
+a1.sources  =  r1
+a1.sinks  =  k1
+a1.channels  =  c1
+
+#描述/配置Source
+a1.sources.r1.type  =  avro
+a1.sources.r1.bind  =  0.0.0.0
+a1.sources.r1.port  =  44444
+
+a1.sources.r1.interceptors = i1
+a1.sources.r1.interceptors.i1.type = regex_extractor
+a1.sources.r1.interceptors.i1.regex = ^(?:[^\\|]*\\|){15}[^\\|_]*_[^\\|_]*_([^\\|_]*)\\|[^\\|]*$
+a1.sources.r1.interceptors.i1.serializers = s1
+a1.sources.r1.interceptors.i1.serializers.s1.name = timestamp
+
+##描述Sink
+a1.sinks.k1.type  = hdfs
+a1.sinks.k1.hdfs.path = hdfs://Park01:9000/flux/reportTime=%Y-%m-%d
+a1.sinks.k1.hdfs.fileType = DataStream
+a1.sinks.k1.hdfs.fileSuffix = .data
+a1.sinks.k1.hdfs.rollInterval=0
+a1.sinks.k1.hdfs.rollSize=134217728
+a1.sinks.k1.hdfs.rollCount=0
+
+#描述内存Channel
+a1.channels.c1.type  =  memory
+a1.channels.c1.capacity  =  1000
+a1.channels.c1.transactionCapacity  =  100
+
+#为Channle绑定Source和Sink
+a1.sources.r1.channels  =  c1
+a1.sinks.k1.channel  =  c1
+==============================
+--------------------
+
+
+
+#Agent a1的组件
+a1.sources  =  r1
+a1.sinks  =  k1
+a1.channels  =  c1
+
+#描述/配置Source
+a1.sources.r1.type  =  avro
+a1.sources.r1.bind  =  0.0.0.0
+a1.sources.r1.port  =  44444
+a1.sources.r1.interceptors = i1
+a1.sources.r1.interceptors.i1.regex = ^(?:[^\\|]*\\|){15}(?:[^\\|]*_[^\\|]*_([^\\|]*)\\|)[^\\|]*$
+a1.sources.r1.interceptors.i1.type = regex_extractor
+a1.sources.r1.interceptors.i1.serializers = s1
+a1.sources.r1.interceptors.i1.serializers.s1.name = timestamp
+
+##描述Sink
+a1.sinks.k1.type  = hdfs
+a1.sinks.k1.hdfs.path = hdfs://hadoop01:9000/flux/reportTime=%Y-%m-%d
+a1.sinks.k1.hdfs.fileType = DataStream
+#a1.sinks.k1.hdfs.filePrefix = %Y-%m-%d-%H-%M-%S
+a1.sinks.k1.hdfs.fileSuffix = .data
+a1.sinks.k1.hdfs.rollInterval=0
+a1.sinks.k1.hdfs.rollSize=104857600
+a1.sinks.k1.hdfs.rollCount=0
+
+#描述内存Channel
+a1.channels.c1.type  =  memory
+a1.channels.c1.capacity  =  1000
+a1.channels.c1.transactionCapacity  =  100
+
+#为Channle绑定Source和Sink
+a1.sources.r1.channels  =  c1
+a1.sinks.k1.channel  =  c1
+
+
+
+./flume-ng agent --conf ../conf --conf-file ../conf/flux.conf --name a1 -Dflume.root.logger=INFO,console
+
+
+
+	public static void main(String[] args) {
+		String pre = "^(?:[^\\|]*\\|){15}(?:[^\\|]*_[^\\|]*_([^\\|]*)\\|)[^\\|]*$";
+		String str = "9999|http://hadoop01/demo/a.jsp|a.jsp|页面A|utf-8|1536x864|32-bit|zh-cn|1|1|10.0|0.8854856940742033||Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 10.0; WOW64; Trident/8.0; Touch; .NET4.0C; .NET4.0E; .NET CLR 2.0.50727; .NET CLR 3.0.30729; .NET CLR 3.5.30729; InfoPath.3; Tablet PC 2.0)|30124168496535978032|7622515780_0_1480734576|192.168.242.1";
+
+		Pattern p = Pattern.compile(pre);
+		Matcher matcher = p.matcher(str);
+
+		matcher.find();
+		int count = matcher.groupCount();
+		System.out.println(count);
+		for(int i = 0;i<=count;i++){
+			String s = matcher.group(i);
+			System.out.println(s);
+		}
+	}

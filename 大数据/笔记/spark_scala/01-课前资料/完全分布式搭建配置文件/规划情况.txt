@@ -1,0 +1,17 @@
+zookeeper
+	hadoop01
+	hadoop02
+	hadoop03
+
+hadoop01
+	ZK NN1 DFSZKFailoverController
+hadoop02
+	ZK NN2 DFSZKFailoverController
+hadoop03
+	ZK RM
+hadoop04
+	DN NM JN
+hadoop05
+	DN NM JN
+hadoop06
+	DN NM JN
